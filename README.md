@@ -12,8 +12,8 @@ $ ansible-galaxy install https://github.com/kriansa/ansible-roles
 
 ### Use roles as a playbook dependency
 
-Your `requirements.yml` is used by the `ansible-galaxy` tool to understand
-what sources to use. It should list *this* github repository as the source.
+Your `requirements.yml` is used by the `ansible-galaxy` tool to understand what sources to use. It
+should list *this* github repository as the source.
 
 
 ```yaml
