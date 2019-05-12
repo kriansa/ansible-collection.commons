@@ -1,0 +1,28 @@
+---
+- name: set hostname
+  become: true
+  hostname: 
+    name: "{{ hostname }}"
+
+- name: upgrade all packages
+  become: true
+  yum:
+    name: '*'
+    state: latest
+    update_cache: true
+    exclude: kernel
+
+- name: install utility packages
+  become: true
+  yum:
+    name: "{{ packages }}"
+    state: latest
+  vars:
+    packages:
+      - auter
+      - htop
+
+- name: upgrade the kernel
+  notify: reboot
+  become: true
+  yum: name=kernel state=latest

@@ -1,0 +1,34 @@
+---
+- name: enable auto-updates to run after 2:30AM
+  become: true
+  blockinfile: 
+    path: /etc/cron.d/auter
+    block: |
+      # Enable auto updates every 2:30AM
+      30 2 * * * root /usr/bin/auter --apply
+
+- name: configure auto-reboot on kernel upgrades
+  become: true
+  cron:
+    name: auto-reboot whenever necessary
+    minute: 0
+    hour: 3
+    job: sudo needs-restarting -r || sudo reboot
+
+- name: disable password SSH auth
+  become: true
+  notify: restart ssh
+  lineinfile: 
+    path: /etc/ssh/sshd_config
+    regexp: '^PasswordAuthentication'
+    line: PasswordAuthentication no
+
+- name: open ports on firewalld
+  become: true
+  when: ansible_distribution == 'CentOS' and open_ports.length > 0
+  firewalld:
+    port: "{{ item }}"
+    permanent: yes
+    immediate: yes
+    state: enabled
+  with_items: "{{ open_ports }}"

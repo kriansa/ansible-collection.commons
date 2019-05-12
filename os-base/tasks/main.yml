@@ -1,0 +1,7 @@
+---
+- import_tasks: install_packages.yml
+- import_tasks: security_hardening.yml
+- import_tasks: install_cloudwatch_agent.yml
+  when: install_cloudwatch == true
+- import_tasks: install_epel.yml
+  when: install_epel == true

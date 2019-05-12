@@ -1,0 +1,19 @@
+galaxy_info:
+  description: Installs basic os-hardening such as disabling password for SSH
+  author: kriansa
+  license: BSD
+  min_ansible_version: 2.7
+
+  platforms:
+  - name: CentOS
+    versions:
+      - all
+  - name: Amazon
+    versions:
+      - all
+
+  galaxy_tags:
+    - linux-hardening
+    - os-primitives
+
+dependencies: []

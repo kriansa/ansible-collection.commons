@@ -1,0 +1,14 @@
+---
+# Sets the hostname of this server
+hostname: myserver
+
+# Specify if you want to open ports for this server.
+# The format is the following:
+# - 80/tcp
+open_ports: []
+
+# Install EPEL repository?
+install_epel: yes
+
+# Install CloudWatch agent?
+install_cloudwatch: yes
