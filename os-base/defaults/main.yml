@@ -7,8 +7,5 @@ hostname: myserver
 # - 80/tcp
 open_ports: []
 
-# Install EPEL repository?
-install_epel: yes
-
 # Install CloudWatch agent?
 install_cloudwatch: yes

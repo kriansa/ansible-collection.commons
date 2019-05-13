@@ -1,23 +1,21 @@
 OS Base
 =========
 
-A basic OS setup for my current needs.
+A basic OS setup for my current RHEL/CentOS/Amazon Linux baseline.
 
 Role Variables
 --------------
 
 * **hostname** - Defines the hostname.
 * **open_ports** - Selects the ports that we should open for listening.
+* **install_cloudwatch** - Whether to install AWS CloudWatch Agent. (default=True)
 
 Example Playbook
 ----------------
 
-Including an example of how to use your role (for instance, with variables passed in as parameters)
-is always nice for users too:
-
     - hosts: servers
       roles:
-         - { role: kriansa.os-base, hostname: my-cool-server, open_ports: [ "80/tcp" ] }
+         - { role: kriansa/os-base, hostname: my-cool-server, open_ports: [ "80/tcp" ] }
 
 License
 -------
