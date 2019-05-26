@@ -4,4 +4,4 @@
 - import_tasks: install_packages.yml
 - import_tasks: security_hardening.yml
 - import_tasks: install_cloudwatch_agent.yml
-  when: install_cloudwatch == true
+  when: install_cloudwatch == true and ansible_distribution == 'Amazon'

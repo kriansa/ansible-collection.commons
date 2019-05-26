@@ -11,8 +11,8 @@
   become: true
   cron:
     name: auto-reboot whenever necessary
-    minute: 0
-    hour: 3
+    minute: "0"
+    hour: "3"
     job: sudo needs-restarting -r || sudo reboot
 
 - name: disable password SSH auth

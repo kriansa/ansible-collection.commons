@@ -3,6 +3,10 @@
   become: true
   yum: name=https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm state=latest
 
+- name: install yum-plugin-priorities
+  become: true
+  yum: name=yum-plugin-priorities state=latest
+
 - name: ensure that epel doesn't obsolete system packages
   become: true
   lineinfile:
