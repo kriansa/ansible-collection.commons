@@ -23,9 +23,14 @@
     regexp: '^PasswordAuthentication'
     line: PasswordAuthentication no
 
+- name: gather installed packages facts
+  become: true
+  package_facts:
+    manager: rpm
+
 - name: open ports on firewalld
   become: true
-  when: ansible_distribution == 'CentOS' and open_ports|length > 0
+  when: ansible_distribution == 'CentOS' and open_ports|length > 0 and 'firewalld' in ansible_facts.packages
   firewalld:
     port: "{{ item }}"
     permanent: yes
