@@ -6,12 +6,14 @@
     state: latest
     update_cache: true
     exclude: kernel
+    lock_timeout: 90
 
 - name: install utility packages
   become: true
   yum:
     name: "{{ packages }}"
     state: latest
+    lock_timeout: 90
   vars:
     packages:
       - auter
@@ -20,4 +22,4 @@
 - name: upgrade the kernel
   notify: reboot
   become: true
-  yum: name=kernel state=latest
+  yum: name=kernel state=latest lock_timeout=90
