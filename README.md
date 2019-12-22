@@ -39,7 +39,6 @@ When calling the roles you just need to ensure the folder structure is followed.
     - kriansa/os-base
 ```
 
-
 ## License
 
 3-Clause BSD.

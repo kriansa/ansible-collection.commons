@@ -1,9 +1,13 @@
 ---
+- file: path=/var/run/yum.pid state=absent
+  become: true
+
 - name: install cloudwatch agent
   become: yes
-  yum: 
-    name: https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm 
+  yum:
+    name: https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
     state: present
+    lock_timeout: 300
 
 - name: copy configuration file
   become: yes

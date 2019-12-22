@@ -1,11 +1,20 @@
 ---
+- file: path=/var/run/yum.pid state=absent
+  become: true
+
 - name: install epel
   become: true
-  yum: name=https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm state=latest lock_timeout=90
+  yum:
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    state: latest
+    lock_timeout: 300
+
+- file: path=/var/run/yum.pid state=absent
+  become: true
 
 - name: install yum-plugin-priorities
   become: true
-  yum: name=yum-plugin-priorities state=latest lock_timeout=90
+  yum: name=yum-plugin-priorities state=latest lock_timeout=300
 
 - name: ensure that epel doesn't obsolete system packages
   become: true

@@ -1,7 +1,7 @@
 ---
 - name: reboot
   become: true
-  reboot:
+  shell: reboot
 
 - name: restart ssh
   become: true
