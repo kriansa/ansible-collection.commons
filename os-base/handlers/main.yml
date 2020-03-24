@@ -1,8 +1,4 @@
 ---
-- name: reboot
-  become: true
-  shell: reboot
-
 - name: restart ssh
   become: true
   systemd: name=sshd state=restarted
@@ -10,3 +6,7 @@
 - name: restart cloudwatch
   become: true
   service: name=amazon-cloudwatch-agent enabled=yes state=restarted
+
+- name: reboot in one minute
+  become: true
+  shell: shutdown -r +1
