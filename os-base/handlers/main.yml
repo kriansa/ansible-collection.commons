@@ -7,6 +7,6 @@
   become: true
   service: name=amazon-cloudwatch-agent enabled=yes state=restarted
 
-- name: reboot in one minute
+- name: reboot
   become: true
   shell: shutdown -r +1
