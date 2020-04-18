@@ -9,3 +9,6 @@ open_ports: []
 
 # Install CloudWatch agent?
 install_cloudwatch: yes
+
+# Should we update the kernel? That needs a reboot.
+update_kernel: yes

@@ -31,4 +31,5 @@
 - name: upgrade the kernel
   notify: reboot
   become: true
+  when: update_kernel == true
   yum: name=kernel state=latest lock_timeout=300
