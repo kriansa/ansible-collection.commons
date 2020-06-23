@@ -16,6 +16,7 @@
 
 - name: ensure that epel doesn't obsolete system packages
   become: true
+  when: need_yum_priorities == True
   lineinfile:
     path: /etc/yum/pluginconf.d/priorities.conf
     line: check_obsoletes = 1
