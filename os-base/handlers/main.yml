@@ -10,3 +10,15 @@
 - name: reboot
   become: true
   shell: shutdown -r +1
+
+- name: add journald persistent path
+  become: true
+  command: systemd-tmpfiles --create --prefix /var/log/journal
+
+- name: restart systemd-journald
+  become: true
+  service: name=systemd-journald state=restarted
+
+- name: update grub
+  become: true
+  command: update-grub

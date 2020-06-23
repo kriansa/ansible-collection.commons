@@ -1,4 +1,11 @@
 ---
+- name: enable auto-reboot after kernel upgrades
+  become: true
+  lineinfile:
+    path: /etc/auter/auter.conf
+    regexp: '^AUTOREBOOT='
+    line: 'AUTOREBOOT="yes"'
+
 - name: enable auto-updates to run after 2:30AM
   become: true
   blockinfile:
@@ -6,14 +13,6 @@
     block: |
       # Enable auto updates every 2:30AM
       30 2 * * * root /usr/bin/auter --apply
-
-- name: configure auto-reboot on kernel upgrades
-  become: true
-  cron:
-    name: auto-reboot whenever necessary
-    minute: "0"
-    hour: "3"
-    job: sudo needs-restarting -r || sudo reboot
 
 - name: disable password SSH auth
   become: true

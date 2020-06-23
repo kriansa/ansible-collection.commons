@@ -1,0 +1,8 @@
+---
+- name: enforce grub timeout of 1 second
+  become: true
+  notify: make grub config
+  lineinfile:
+    dest: /etc/default/grub
+    regexp: "^GRUB_TIMEOUT=[0-9]+$"
+    line: "GRUB_TIMEOUT=1"

@@ -1,0 +1,7 @@
+---
+- name: create persistent path for journald logs
+  file: path=/var/log/journal state=directory mode=0755
+  become: true
+  notify:
+    - add journald persistent path
+    - restart systemd-journald

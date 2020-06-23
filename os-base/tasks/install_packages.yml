@@ -1,7 +1,4 @@
 ---
-- file: path=/var/run/yum.pid state=absent
-  become: true
-
 - name: upgrade all packages
   become: true
   yum:
@@ -9,27 +6,19 @@
     state: latest
     update_cache: true
     exclude: kernel
-    lock_timeout: 300
-
-# - file: path=/var/run/yum.pid state=absent
-#   become: true
 
 - name: install utility packages
   become: true
   yum:
     name: "{{ packages }}"
     state: latest
-    lock_timeout: 90
   vars:
     packages:
       - auter
       - htop
 
-- file: path=/var/run/yum.pid state=absent
-  become: true
-
 - name: upgrade the kernel
   notify: reboot
   become: true
   when: update_kernel == true
-  yum: name=kernel state=latest lock_timeout=300
+  yum: name=kernel state=latest
