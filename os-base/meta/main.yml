@@ -7,7 +7,7 @@ galaxy_info:
   platforms:
   - name: CentOS
     versions:
-      - all
+      - 8
   - name: Amazon
     versions:
       - all
