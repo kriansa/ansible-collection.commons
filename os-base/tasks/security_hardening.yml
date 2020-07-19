@@ -9,10 +9,11 @@
 - name: remove cockpit
   when: ansible_distribution == 'CentOS'
   become: true
-  yum: name={{ item }} state=removed
-  with_items:
-    - cockpit
-    - cockpit-*
+  yum: name={{ packages }} state=removed
+  vars:
+    packages:
+      - cockpit
+      - cockpit-*
 
 - name: install auter systemd timers
   become: true
