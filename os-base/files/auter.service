@@ -1,0 +1,10 @@
+[Unit]
+Description=Runs auter to automatically upgrade the system
+Wants=auter.timer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/auter --apply
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Automatically runs auter every day
+Requires=auter.service
+
+[Timer]
+Unit=auter.service
+OnCalendar=*-*-* 02:30:00
+
+[Install]
+WantedBy=timers.target
