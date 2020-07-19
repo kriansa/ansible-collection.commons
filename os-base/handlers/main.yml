@@ -21,7 +21,7 @@
 
 - name: update grub
   become: true
-  command: grub2-mkconfig -o "$(readlink -e /etc/grub2.cfg)"
+  shell: grub2-mkconfig -o "$(readlink -e /etc/grub2.cfg)"
 
 - name: reload systemd daemon
   become: true
