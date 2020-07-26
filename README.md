@@ -1,13 +1,13 @@
-# Ansible Roles
+# Ansible Collection - kriansa.commons
 
-This is a repository of my own reusable ansible roles.
+This is a repository of my own reusable ansible roles & plugins.
 
 ## Usage
 
 ### Download the roles
 
 ```sh
-$ ansible-galaxy install https://github.com/kriansa/ansible-roles
+$ ansible-galaxy collection install https://github.com/kriansa/ansible-collection.commons
 ```
 
 ### Use roles as a playbook dependency
@@ -18,9 +18,10 @@ should list *this* github repository as the source.
 
 ```yaml
 ---
-- src: https://github.com/kriansa/ansible-roles/
-  name: kriansa
-  version: master
+collections:
+  - name: https://github.com/kriansa/ansible-collection.commons
+    type: git
+    version: master
 ```
 
 Then you will need to pull all the requirements using the command below:
@@ -36,9 +37,9 @@ When calling the roles you just need to ensure the folder structure is followed.
 
 ```yaml
 - roles:
-    - kriansa/os-base
+    - kriansa.commons.os_base
 ```
 
 ## License
 
-3-Clause BSD.
+Apache 2.0

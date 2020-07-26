@@ -1,0 +1,35 @@
+# The namespace of the collection. This can be a company/brand/organization or product namespace under which all
+# content lives. May only contain alphanumeric lowercase characters and underscores. Namespaces cannot start with
+# underscores or numbers and cannot contain consecutive underscores
+namespace: kriansa
+
+# The name of the collection. Has the same character restrictions as 'namespace'
+name: commons
+
+# The version of the collection. Must be compatible with semantic versioning
+version: 1.0.0
+
+# The path to the Markdown (.md) readme file. This path is relative to the root of the collection
+readme: README.md
+
+# A list of the collection's content authors. Can be just the name or in the format 'Full Name <email> (url)
+# @nicks:irc/im.site#channel'
+authors:
+  - Daniel Pereira <daniel@garajau.com.br> (https://github.com/kriansa)
+
+# A short summary description of the collection
+description: My own collection of roles and plugins.
+
+# Either a single license or a list of licenses for content inside of a collection. Ansible Galaxy currently only
+# accepts L(SPDX,https://spdx.org/licenses/) licenses. This key is mutually exclusive with 'license_file'
+license:
+  - Apache-2.0
+
+# The URL of the originating SCM repository
+repository: https://github.com/kriansa/ansible-collection.commons
+
+# The URL to the homepage of the collection/project
+homepage: https://github.com/kriansa/ansible-collection.commons
+
+# The URL to the collection issue tracker
+issues: https://github.com/kriansa/ansible-collection.commons/issues
