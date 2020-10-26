@@ -3,6 +3,12 @@
     epel_version: "{{ ansible_facts['distribution_major_version'] if ansible_facts['distribution'] == 'CentOS' else '7' }}"
     need_yum_priorities: "{{ ansible_facts['distribution'] != 'CentOS' }}"
 
+- name: add epel GPG key
+  become: true
+  rpm_key:
+    state: present
+    key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ epel_version }}
+
 - name: install epel
   become: true
   yum:

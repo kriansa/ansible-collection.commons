@@ -41,7 +41,7 @@
 - name: open ports on firewalld
   become: true
   when: ansible_distribution == 'CentOS' and open_ports|length > 0 and 'firewalld' in ansible_facts.packages
-  firewalld:
+  ansible.posix.firewalld:
     port: "{{ item }}"
     permanent: yes
     immediate: yes
