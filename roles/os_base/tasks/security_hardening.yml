@@ -1,46 +1,47 @@
 ---
-- name: enable auto-reboot after kernel upgrades
-  become: true
-  lineinfile:
-    path: /etc/auter/auter.conf
-    regexp: '^AUTOREBOOT='
-    line: 'AUTOREBOOT="yes"'
-
-- name: remove cockpit
-  when: ansible_distribution == 'CentOS'
-  become: true
-  yum: name={{ packages }} state=removed
-  vars:
-    packages:
-      - cockpit
-      - cockpit-*
-
-- name: install auter systemd timers
-  become: true
-  copy: src={{ item }} dest=/etc/systemd/system
-  with_items:
-    - files/auter.service
-    - files/auter.timer
-  notify:
-    - reload systemd daemon
-    - enable auter schedule
-
 - name: disable password SSH auth
   become: true
   notify: restart ssh
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^PasswordAuthentication'
     line: PasswordAuthentication no
 
-- name: gather installed packages facts
+- name: disable root SSH auth
   become: true
-  package_facts:
-    manager: rpm
+  notify: restart ssh
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^PermitRootLogin'
+    line: PermitRootLogin no
+
+- name: restrict su to wheel group only
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    line: auth required pam_wheel.so trust
+
+- name: restrict passwordless sudo to wheel group only
+  become: true
+  ansible.builtin.copy:
+    content: "%wheel ALL=(ALL) NOPASSWD:ALL"
+    dest: /etc/sudoers.d/10-wheel
+    mode: "0600"
+
+- name: lock root user password
+  become: true
+  ansible.builtin.user:
+    name: root
+    password_lock: yes
+
+- name: install sshguard
+  become: true
+  notify: restart sshguard
+  ansible.builtin.package: state=latest name=sshguard
 
 - name: open ports on firewalld
   become: true
-  when: ansible_distribution == 'CentOS' and open_ports|length > 0 and 'firewalld' in ansible_facts.packages
+  when: "'firewalld' in ansible_facts.packages"
   ansible.posix.firewalld:
     port: "{{ item }}"
     permanent: yes

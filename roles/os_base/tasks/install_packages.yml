@@ -1,24 +1,8 @@
 ---
-- name: upgrade all packages
-  become: true
-  yum:
-    name: '*'
-    state: latest
-    update_cache: true
-    exclude: kernel
-
 - name: install utility packages
   become: true
-  yum:
-    name: "{{ packages }}"
+  ansible.builtin.package:
     state: latest
-  vars:
-    packages:
-      - auter
+    name:
       - htop
-
-- name: upgrade the kernel
-  notify: reboot
-  become: true
-  when: update_kernel == true
-  yum: name=kernel state=latest
+      - sshguard

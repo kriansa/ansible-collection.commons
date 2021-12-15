@@ -1,0 +1,14 @@
+---
+- name: create persistent path for journald logs
+  become: true
+  ansible.builtin.file: path=/var/log/journal state=directory mode="2755" group=systemd-journal
+  notify:
+    - add journald persistent path
+    - restart systemd-journald
+
+- name: limit journal log retention size
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: "^#?SystemMaxUse="
+    line: "SystemMaxUse=500M"

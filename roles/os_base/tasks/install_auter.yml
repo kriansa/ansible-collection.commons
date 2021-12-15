@@ -1,0 +1,24 @@
+---
+- name: install auter
+  become: true
+  ansible.builtin.yum:
+    name: auter
+    state: latest
+
+- name: enable auto-reboot after kernel upgrades
+  become: true
+  when: automatic_update_reboot == true
+  ansible.builtin.lineinfile:
+    path: /etc/auter/auter.conf
+    regexp: '^AUTOREBOOT='
+    line: 'AUTOREBOOT="yes"'
+
+- name: install auter systemd timers
+  become: true
+  ansible.builtin.copy: src={{ item }} dest=/etc/systemd/system
+  with_items:
+    - files/auter.service
+    - files/auter.timer
+  notify:
+    - reload systemd daemon
+    - enable auter schedule

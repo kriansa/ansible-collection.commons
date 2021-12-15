@@ -1,0 +1,6 @@
+---
+# The username you want to configure the authorized_keys for
+username: admin
+
+# The URL to fetch the authorized_keys
+authorized_keys_url: https://github.com/kriansa.keys

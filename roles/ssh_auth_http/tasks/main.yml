@@ -1,0 +1,46 @@
+---
+- name: install curl
+  become: yes
+  ansible.builtin.package:
+    state: latest
+    name: curl
+
+- name: create $HOME/.bin
+  become: yes
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: /home/{{ username }}/.bin
+    state: directory
+    mode: "0755"
+
+- name: create $HOME/.ssh
+  become: yes
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: /home/{{ username }}/.ssh
+    state: directory
+    mode: "0700"
+
+- name: create an empty $HOME/.ssh/authorized_keys
+  become: yes
+  become_user: "{{ username }}"
+  ansible.builtin.file:
+    path: /home/{{ username }}/.ssh/authorized_keys
+    state: touch
+    mode: "0600"
+
+- name: create script to pull out the SSH keys from URL
+  become: yes
+  become_user: "{{ username }}"
+  notify: run ssh-key-downloader
+  ansible.builtin.template:
+    src: files/ssh-key-downloader.sh.j2
+    dest: /home/{{ username }}/.bin/ssh-key-downloader
+    mode: "0755"
+
+- name: create cron entry for running the key puller automatically every minute
+  become: yes
+  become_user: "{{ username }}"
+  ansible.builtin.cron:
+    name: run ssh-key-downloader automatically
+    job: /home/{{ username }}/.bin/ssh-key-downloader

@@ -2,7 +2,16 @@
 # Sets the hostname of this server
 hostname: myserver
 
-# Specify if you want to open ports for this server.
+# Admin user name. By default, we disable root user and turn this one into an admin which can get
+# super user access by using `doas`
+username: admin
+
+# Should we remove firewalld? Set to yes if you use on a cloud provider that already provides
+# firewall functionality
+remove_firewalld: yes
+
+# Specify if you want to open ports for this server if it's using firewalld, otherwise this value
+# will be ignored
 # The format is the following:
 # - 80/tcp
 open_ports: []
@@ -10,5 +19,20 @@ open_ports: []
 # Install CloudWatch agent?
 install_cloudwatch: yes
 
-# Should we update the kernel? That needs a reboot.
+# Remove OS bloat packages?
+remove_bloat: yes
+
+# Should we update the kernel when this playbook run? That requires a reboot
 update_kernel: yes
+
+# Should we configure the automatic updates?
+automatic_update_download_time: 02:00
+automatic_update_start_time: 02:30
+automatic_update_email_report: ""
+
+# When automatic updates are on, should we update the kernel as well? Those always require a reboot
+automatic_update_kernel: yes
+
+# Should we reboot whenever necessary after an update?
+automatic_update_reboot: yes
+automatic_update_reboot_time: 03:00

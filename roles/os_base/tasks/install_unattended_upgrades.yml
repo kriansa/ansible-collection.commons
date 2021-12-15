@@ -1,0 +1,23 @@
+---
+- name: install unattended-upgrades package
+  become: true
+  ansible.builtin.apt:
+    name: unattended-upgrades
+
+- name: configure automatic upgrades
+  become: true
+  ansible.builtin.template:
+    src: files/automatic-upgrades.j2
+    dest: /etc/apt/apt.conf.d/90automatic-upgrades
+
+- name: set time for downloading automatic updates
+  become: true
+  ansible.builtin.template:
+    src: files/apt-daily.timer.j2
+    dest: /etc/systemd/system/apt-daily.timer.d/override.conf
+
+- name: set time for installing automatic updates
+  become: true
+  ansible.builtin.template:
+    src: files/apt-daily-upgrade.timer.j2
+    dest: /etc/systemd/system/apt-daily-upgrade.timer.d/override.conf

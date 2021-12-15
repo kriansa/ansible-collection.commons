@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily apt download activities
+
+[Timer]
+OnCalendar=*-*-* {{ automatic_update_download_time }}
+RandomizedDelaySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

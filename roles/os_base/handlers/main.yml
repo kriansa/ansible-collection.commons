@@ -1,35 +1,39 @@
 ---
 - name: restart ssh
   become: true
-  systemd: name=sshd state=restarted
+  ansible.builtin.systemd: name=sshd state=restarted
 
 - name: restart cloudwatch
   become: true
-  service: name=amazon-cloudwatch-agent enabled=yes state=restarted
+  ansible.builtin.service: name=amazon-cloudwatch-agent enabled=yes state=restarted
 
 - name: reboot
   become: true
-  shell: shutdown -r +1
+  ansible.builtin.shell: shutdown -r +1
 
 - name: add journald persistent path
   become: true
-  command: systemd-tmpfiles --create --prefix /var/log/journal
+  ansible.builtin.command: systemd-tmpfiles --create --prefix /var/log/journal
 
 - name: restart systemd-journald
   become: true
-  service: name=systemd-journald state=restarted
+  ansible.builtin.service: name=systemd-journald state=restarted
 
 - name: update grub
   become: true
-  shell: grub2-mkconfig -o "$(readlink -e /etc/grub2.cfg)"
+  ansible.builtin.shell: grub2-mkconfig -o "$(readlink -e /etc/grub2.cfg)"
 
 - name: reload systemd daemon
   become: true
-  systemd: daemon_reload=yes
+  ansible.builtin.systemd: daemon_reload=yes
 
 - name: enable auter schedule
   become: true
-  systemd: name={{ item }} enabled=yes
+  ansible.builtin.systemd: name={{ item }} enabled=yes
   with_items:
     - auter.service
     - auter.timer
+
+- name: restart sshguard
+  become: true
+  ansible.builtin.systemd: name=sshguard enabled=yes state=restarted

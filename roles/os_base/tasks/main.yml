@@ -1,8 +1,28 @@
 ---
+- name: gather installed packages facts
+  become: true
+  ansible.builtin.package_facts:
+    manager: auto
+
 - import_tasks: set_hostname.yml
+- import_tasks: create_user.yml
+
+# RHEL-specific tasks
 - import_tasks: install_epel.yml
+  when: ansible_facts['os_family'] == 'RedHat'
+- import_tasks: install_auter.yml
+  when: ansible_facts['os_family'] == 'RedHat'
+- import_tasks: install_packages_rhel.yml
+  when: ansible_facts['os_family'] == 'RedHat'
+
+# Debian-specific tasks
+- import_tasks: install_unattended_upgrades.yml
+  when: ansible_facts['os_family'] == 'Debian'
+- import_tasks: install_packages_debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
 - import_tasks: install_packages.yml
-- import_tasks: persist_journal.yml
+- import_tasks: configure_journal.yml
 - import_tasks: grub_tuning.yml
 - import_tasks: security_hardening.yml
 - import_tasks: install_cloudwatch_agent.yml

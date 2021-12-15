@@ -1,0 +1,27 @@
+---
+# Not available yet
+- name: install doas
+  become: true
+  ansible.builtin.package:
+    state: latest
+    name:
+      - doas
+
+- name: restrict doas to wheel group only
+  become: true
+  ansible.builtin.copy:
+    content: "permit nopass :wheel"
+    dest: /etc/doas.conf
+    mode: "0600"
+
+- name: remove sudo package (rhel)
+  become: true
+  ansible.builtin.yum: name=sudo state=removed
+
+- name: remove sudo package (debian)
+  become: true
+  ansible.builtin.apt:
+    name: sudo
+    state: absent
+    purge: yes
+

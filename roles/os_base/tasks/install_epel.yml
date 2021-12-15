@@ -1,7 +1,6 @@
 ---
 - set_fact:
-    epel_version: "{{ ansible_facts['distribution_major_version'] if ansible_facts['distribution'] == 'CentOS' else '7' }}"
-    need_yum_priorities: "{{ ansible_facts['distribution'] != 'CentOS' }}"
+    epel_version: "{{ ansible_facts['distribution_major_version'] }}"
 
 - name: add epel GPG key
   become: true
@@ -14,15 +13,3 @@
   yum:
     name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ epel_version }}.noarch.rpm"
     state: latest
-
-- name: install yum-plugin-priorities
-  become: true
-  when: need_yum_priorities == True
-  yum: name=yum-plugin-priorities state=latest
-
-- name: ensure that epel doesn't obsolete system packages
-  become: true
-  when: need_yum_priorities == True
-  lineinfile:
-    path: /etc/yum/pluginconf.d/priorities.conf
-    line: check_obsoletes = 1

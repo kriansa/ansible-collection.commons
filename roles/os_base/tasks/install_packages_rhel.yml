@@ -1,0 +1,31 @@
+---
+- name: remove cockpit
+  when: remove_bloat == true
+  become: true
+  ansible.builtin.yum: name={{ packages }} state=removed
+  vars:
+    packages:
+      - cockpit
+      - cockpit-*
+      - python2*
+      - emacs-filesystem
+      - mysql-release-el8
+
+- name: remove firewalld
+  when: remove_firewalld == true
+  become: true
+  ansible.builtin.yum: name=firewalld* state=removed
+
+- name: upgrade all packages
+  become: true
+  ansible.builtin.yum:
+    name: '*'
+    state: latest
+    update_cache: true
+    exclude: kernel*
+
+- name: upgrade the kernel
+  notify: reboot
+  become: true
+  when: update_kernel == true
+  ansible.builtin.yum: name=kernel* state=latest

@@ -1,0 +1,30 @@
+APT::Periodic {
+  // Set minimum age of a package file. If a file is younger it
+  // will not be deleted (0=disable). Useful to prevent races
+  // and to keep backups of the packages for emergency.
+  MinAge "2";
+
+  Update-Package-Lists "1";
+  Unattended-Upgrade "1";
+  AutocleanInterval "1";
+  CleanInterval "1";
+  Verbose "1";
+};
+
+Unattended-Upgrade {
+  // Send email to this address for problems or packages upgrades
+  // If empty or unset then no email is sent, make sure that you
+  // have a working mail setup on your system. A package that provides
+  // 'mailx' must be installed. E.g. "user@example.com"
+  Mail "{{ automatic_update_email_report }}";
+
+  {% if automatic_update_kernel == False %}
+  Package-Blacklist {
+    "^linux-image-";
+  };
+  {% endif %}
+
+  // Enable automatic reboot if needed
+  Automatic-Reboot "{{ 'true' if automatic_update_reboot else 'false' }}";
+  Automatic-Reboot-Time "{{ automatic_update_reboot_time }}";
+};

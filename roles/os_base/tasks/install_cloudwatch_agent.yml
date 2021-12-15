@@ -1,22 +1,22 @@
 ---
-- file: path=/var/run/yum.pid state=absent
+- ansible.builtin.file: path=/var/run/yum.pid state=absent
   become: true
 
 - name: install cloudwatch agent
   become: yes
-  yum:
+  ansible.builtin.yum:
     name: https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
     state: present
 
 - name: copy configuration file
   become: yes
   notify: restart cloudwatch
-  copy: src=files/config.json dest=/opt/aws/amazon-cloudwatch-agent/etc/config.json
+  ansible.builtin.copy: src=files/config.json dest=/opt/aws/amazon-cloudwatch-agent/etc/config.json
 
 - name: create cloudwatch systemd service
   become: yes
   notify: restart cloudwatch
-  command: >-
+  ansible.builtin.command: >-
     /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
       -a fetch-config -m ec2 -s
       -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json

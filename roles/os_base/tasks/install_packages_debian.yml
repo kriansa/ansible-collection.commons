@@ -1,0 +1,27 @@
+---
+- name: hold kernel if upgrade is not required
+  become: true
+  when: update_kernel == false
+  ansible.builtin.shell: apt-mark hold 'linux-image-*'
+
+- name: upgrade all packages
+  become: true
+  ansible.builtin.apt:
+    name: '*'
+    state: latest
+    autoclean: yes
+    autoremove: yes
+    update_cache: true
+    install_recommends: no
+
+- name: unhold kernel if needed
+  become: true
+  when: update_kernel == false
+  ansible.builtin.shell: apt-mark unhold 'linux-image-*'
+
+- name: check if a reboot is required
+  ansible.builtin.shell: "[ -f /var/run/reboot-required ]"
+  failed_when: False
+  register: reboot_required
+  changed_when: reboot_required.rc == 0
+  notify: reboot

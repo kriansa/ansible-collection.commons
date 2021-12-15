@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#
+# This script downloads the latest SSH key and puts into the authorized_keys
+
+keys_url={{ authorized_keys_url }}
+output=/home/{{ username }}/.ssh/authorized_keys
+
+# The --test flag won't print out the error message into the authorized_keys
+# file in case the request fails.
+curl --fail --output "$output" "$keys_url"

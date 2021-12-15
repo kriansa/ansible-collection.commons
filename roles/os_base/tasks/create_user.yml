@@ -1,0 +1,14 @@
+---
+- name: create wheel group
+  become: true
+  ansible.builtin.group:
+    name: wheel
+    system: yes
+
+- name: create user
+  become: true
+  ansible.builtin.user:
+    name: "{{ username }}"
+    groups: [wheel]
+    password_lock: yes
+    expires: -1

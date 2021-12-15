@@ -1,7 +1,7 @@
 OS Base
 =========
 
-A basic OS setup for my current RHEL/CentOS/Amazon Linux baseline.
+A basic OS setup for my current RHEL/Debian based Linux baselines.
 
 Role Variables
 --------------
@@ -9,6 +9,7 @@ Role Variables
 * **hostname** - Defines the hostname.
 * **open_ports** - Selects the ports that we should open for listening.
 * **install_cloudwatch** - Whether to install AWS CloudWatch Agent. (default=True)
+* **update_kernel** - Whether to update Kernel or not (only on RedHat OS family)
 
 Example Playbook
 ----------------
