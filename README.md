@@ -20,6 +20,7 @@ should list *this* github repository as the source.
 ---
 collections:
   - name: https://github.com/kriansa/ansible-collection.commons
+    type: git
     version: master
 ```
 
