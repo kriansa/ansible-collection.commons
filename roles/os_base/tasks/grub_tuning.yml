@@ -1,7 +1,12 @@
 ---
+- name: check if this system uses grub
+  stat: path=/etc/default/grub
+  register: grub
+
 - name: enforce grub timeout of 1 second
   become: true
   notify: update grub
+  when: grub.stat.exists
   ansible.builtin.lineinfile:
     dest: /etc/default/grub
     regexp: "^GRUB_TIMEOUT=[0-9]+$"
