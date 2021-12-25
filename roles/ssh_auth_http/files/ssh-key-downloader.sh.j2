@@ -7,4 +7,4 @@ output=/home/{{ username }}/.ssh/authorized_keys
 
 # The --test flag won't print out the error message into the authorized_keys
 # file in case the request fails.
-curl --fail --output "$output" "$keys_url"
+curl --fail --silent --show-error --output "$output" "$keys_url"
