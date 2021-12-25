@@ -10,6 +10,15 @@
     src: files/automatic-upgrades.j2
     dest: /etc/apt/apt.conf.d/90automatic-upgrades
 
+- name: create apt-daily.timer systemd folders
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - /etc/systemd/system/apt-daily.timer.d
+    - /etc/systemd/system/apt-daily-upgrade.timer.d
+
 - name: set time for downloading automatic updates
   become: true
   ansible.builtin.template:
