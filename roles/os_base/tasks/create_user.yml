@@ -9,6 +9,6 @@
   become: true
   ansible.builtin.user:
     name: "{{ username }}"
-    groups: [wheel]
+    groups: [wheel,systemd-journal]
     password_lock: yes
     expires: -1
