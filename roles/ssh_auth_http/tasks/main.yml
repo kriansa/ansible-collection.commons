@@ -21,7 +21,12 @@
     state: directory
     mode: "0700"
 
+- stat:
+    path: "/home/{{ username }}/.ssh/authorized_keys"
+  register: keys_file
+
 - name: create an empty $HOME/.ssh/authorized_keys
+  when: not keys_file.stat.exists
   become: yes
   become_user: "{{ username }}"
   ansible.builtin.file:
