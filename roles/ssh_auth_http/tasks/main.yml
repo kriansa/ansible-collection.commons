@@ -21,9 +21,9 @@
     state: directory
     mode: "0700"
 
-- stat:
-  become: yes
+- become: yes
   become_user: "{{ username }}"
+  stat:
     path: "/home/{{ username }}/.ssh/authorized_keys"
   register: keys_file
 
