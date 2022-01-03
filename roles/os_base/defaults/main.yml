@@ -19,6 +19,9 @@ open_ports: []
 # Install CloudWatch agent?
 install_cloudwatch: yes
 
+# Install sshguard?
+install_sshguard: yes
+
 # Remove OS bloat packages?
 remove_bloat: yes
 

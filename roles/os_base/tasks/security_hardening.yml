@@ -36,6 +36,7 @@
 
 - name: install sshguard
   become: true
+  when: install_sshguard == true
   notify: restart sshguard
   ansible.builtin.package: state=latest name=sshguard
 
