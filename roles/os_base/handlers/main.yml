@@ -21,7 +21,7 @@
 
 - name: update grub
   become: true
-  ansible.builtin.shell: grub2-mkconfig -o "$(readlink -e /etc/grub2.cfg)"
+  ansible.builtin.shell: update-grub
 
 - name: reload systemd daemon
   become: true
