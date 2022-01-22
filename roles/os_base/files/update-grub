@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# This script attempts to invoke the correct `grub-update`, that unfortunately is not consistent
+# across all linux distros.
+
+if command -v update-grub; then
+  exec update-grub
+elif command -v grub2-mkconfig; then
+  # This is the list of known locations for the grub output file
+  files=(/etc/grub2.conf /etc/grub2.cfg /etc/grub2-efi.cfg)
+
+  for file in "${files[@]}"; do
+    test -f "$file" || continue
+    # shellcheck disable=SC2093
+    exec grub2-mkconfig -o "$file"
+  done
+
+  echo "No grub configuration was found. Please check where it is located and change update-grub file" >&2
+  exit 1
+else
+  echo "No command exists to update grub. Is it possible that grub is not installed?" >&2
+  exit 1
+fi

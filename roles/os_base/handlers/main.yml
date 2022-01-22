@@ -21,7 +21,7 @@
 
 - name: update grub
   become: true
-  ansible.builtin.shell: update-grub
+  ansible.builtin.script: update-grub
 
 - name: reload systemd daemon
   become: true
