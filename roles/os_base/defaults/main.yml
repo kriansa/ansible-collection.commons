@@ -22,6 +22,9 @@ install_cloudwatch: yes
 # Install sshguard?
 install_sshguard: yes
 
+# Install qemu-guest-agent?
+install_qemu_guest_agent: no
+
 # Remove OS bloat packages?
 remove_bloat: yes
 

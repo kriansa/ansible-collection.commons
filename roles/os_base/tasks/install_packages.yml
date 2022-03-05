@@ -5,3 +5,11 @@
     state: latest
     name:
       - htop
+
+- name: install qemu-guest-agent
+  become: true
+  when: install_qemu_guest_agent == true
+  notify: enable qemu-guest-agent
+  ansible.builtin.package: 
+    name: qemu-guest-agent
+    state: latest
