@@ -21,6 +21,11 @@
     path: /etc/pam.d/su
     line: auth required pam_wheel.so trust
 
+- name: install sudo
+  become: true
+  ansible.builtin.package:
+    name: sudo
+
 - name: restrict passwordless sudo to wheel group only
   become: true
   ansible.builtin.copy:

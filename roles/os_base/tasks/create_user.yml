@@ -11,4 +11,5 @@
     name: "{{ username }}"
     comment: Main system administrator user
     groups: [wheel,systemd-journal]
+    shell: /bin/bash
     expires: -1
