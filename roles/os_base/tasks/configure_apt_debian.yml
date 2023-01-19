@@ -1,0 +1,11 @@
+---
+- name: use debian CDN
+  become: true
+  ansible.builtin.template:
+    src: files/sources.list.j2
+    dest: /etc/apt/sources.list
+
+- name: update apt
+  become: true
+  ansible.builtin.apt:
+    update_cache: yes

@@ -16,6 +16,8 @@
   when: ansible_facts['os_family'] == 'RedHat'
 
 # Debian-specific tasks
+- import_tasks: configure_apt_debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
 - import_tasks: install_unattended_upgrades.yml
   when: ansible_facts['os_family'] == 'Debian'
 - import_tasks: install_packages_debian.yml
