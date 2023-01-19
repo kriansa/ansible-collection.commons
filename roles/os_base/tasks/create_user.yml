@@ -13,3 +13,11 @@
     groups: [wheel,systemd-journal]
     shell: /bin/bash
     expires: -1
+
+- name: set authorized keys
+  become: true
+  become_user: "{{ username }}"
+  when: authorized_keys_url
+  ansible.posix.authorized_key:
+    user: "{{ username }}"
+    key: "{{ lookup('url', authorized_keys_url, split_lines=False) }}"

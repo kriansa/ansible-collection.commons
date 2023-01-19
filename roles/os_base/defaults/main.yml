@@ -6,6 +6,9 @@ hostname: myserver
 # super user access by using `doas`
 username: admin
 
+# The URL to fetch the authorized_keys from (typically https://github.com/<your_username>.keys)
+authorized_keys_url: ""
+
 # Should we remove firewalld? Set to yes if you use on a cloud provider that already provides
 # firewall functionality
 remove_firewalld: yes
@@ -16,7 +19,7 @@ remove_firewalld: yes
 # - 80/tcp
 open_ports: []
 
-# Install CloudWatch agent?
+# Install CloudWatch agent on Amazon Linux?
 install_cloudwatch: yes
 
 # Install sshguard?
