@@ -4,28 +4,27 @@
   ansible.builtin.package_facts:
     manager: auto
 
-- import_tasks: set_hostname.yml
-- import_tasks: create_user.yml
-
 # RHEL-specific tasks
-- import_tasks: install_epel.yml
-  when: ansible_facts['os_family'] == 'RedHat'
-- import_tasks: install_auter.yml
-  when: ansible_facts['os_family'] == 'RedHat'
-- import_tasks: install_packages_rhel.yml
-  when: ansible_facts['os_family'] == 'RedHat'
+- when: ansible_facts['os_family'] == 'RedHat'
+  block:
+    - import_tasks: install_epel.yml
+    - import_tasks: install_auter.yml
+    - import_tasks: install_packages_rhel.yml
 
 # Debian-specific tasks
-- import_tasks: configure_apt_debian.yml
-  when: ansible_facts['os_family'] == 'Debian'
-- import_tasks: install_unattended_upgrades.yml
-  when: ansible_facts['os_family'] == 'Debian'
-- import_tasks: install_packages_debian.yml
-  when: ansible_facts['os_family'] == 'Debian'
+- when: ansible_facts['os_family'] == 'Debian'
+  block:
+    - import_tasks: configure_apt_debian.yml
+    - import_tasks: install_unattended_upgrades.yml
+    - import_tasks: install_packages_debian.yml
+
+# Amazon linux specific tasks
+- import_tasks: install_cloudwatch_agent.yml
+  when: install_cloudwatch == true and ansible_facts['distribution'] == 'Amazon'
 
 - import_tasks: install_packages.yml
+- import_tasks: set_hostname.yml
+- import_tasks: create_user.yml
 - import_tasks: configure_journal.yml
 - import_tasks: grub_tuning.yml
 - import_tasks: security_hardening.yml
-- import_tasks: install_cloudwatch_agent.yml
-  when: install_cloudwatch == true and ansible_facts['distribution'] == 'Amazon'
