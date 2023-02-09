@@ -19,7 +19,8 @@
   become: true
   ansible.builtin.lineinfile:
     path: /etc/pam.d/su
-    line: auth required pam_wheel.so trust
+    insertafter: "# auth       sufficient pam_wheel.so trust"
+    line: auth sufficient pam_wheel.so trust
 
 - name: restrict passwordless sudo to wheel group only
   become: true
