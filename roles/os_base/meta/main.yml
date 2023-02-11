@@ -5,15 +5,16 @@ galaxy_info:
   min_ansible_version: 2.11
 
   platforms:
-  - name: CentOS
+  - name: RHEL
     versions:
       - 8
+      - 9
   - name: Amazon
     versions:
       - all
   - name: Debian
     versions:
-      - 8
+      - 11
 
   galaxy_tags:
     - linux-hardening

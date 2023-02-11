@@ -1,0 +1,3 @@
+---
+- when: install_cloudwatch == true
+  import_tasks: install_cloudwatch_agent.yml

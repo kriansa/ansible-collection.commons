@@ -4,7 +4,7 @@ Requires=auter.service
 
 [Timer]
 Unit=auter.service
-OnCalendar=*-*-* 02:30:00
+OnCalendar=*-*-* {{ automatic_update_download_time }}
 
 [Install]
 WantedBy=timers.target

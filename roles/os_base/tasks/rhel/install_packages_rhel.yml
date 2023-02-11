@@ -1,8 +1,8 @@
 ---
 - name: remove bloat software
-  when: remove_bloat == true
+  when: remove_bloat
   become: true
-  ansible.builtin.yum: name={{ packages }} state=removed
+  ansible.builtin.dnf: name={{ packages }} state=removed
   vars:
     packages:
       - cockpit
@@ -13,18 +13,20 @@
       - python2-pip-wheel
       - python2-setuptools
       - python2-setuptools-wheel
-
       - emacs-filesystem
       - mysql-release-el8
+      - mesa-*
+      - adobe-source-code-pro-fonts
+      - PackageKit
 
 - name: remove firewalld
-  when: remove_firewalld == true
+  when: remove_firewalld
   become: true
-  ansible.builtin.yum: name=firewalld* state=removed
+  ansible.builtin.dnf: name=firewalld* state=removed
 
 - name: upgrade all packages
   become: true
-  ansible.builtin.yum:
+  ansible.builtin.dnf:
     name: '*'
     state: latest
     update_cache: true
@@ -34,4 +36,11 @@
   notify: reboot
   become: true
   when: update_kernel == true
-  ansible.builtin.yum: name=kernel* state=latest
+  ansible.builtin.dnf: name=kernel* state=latest
+
+- name: check if a reboot is required
+  ansible.builtin.shell: needs-restarting --reboothint
+  failed_when: False
+  register: reboot_required
+  changed_when: reboot_required.rc != 0
+  notify: reboot

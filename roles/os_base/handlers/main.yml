@@ -34,10 +34,6 @@
     - auter.service
     - auter.timer
 
-- name: restart sshguard
-  become: true
-  ansible.builtin.systemd: name=sshguard enabled=yes state=restarted
-
 - name: enable qemu-guest-agent
   become: true
   ansible.builtin.systemd: name=qemu-guest-agent state=restarted enabled=yes

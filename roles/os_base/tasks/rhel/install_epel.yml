@@ -1,0 +1,8 @@
+---
+- name: enable dnf crb repository
+  become: true
+  ansible.builtin.command: dnf config-manager --set-enabled crb
+
+- name: install epel
+  become: true
+  ansible.builtin.dnf: name=epel-release state=latest

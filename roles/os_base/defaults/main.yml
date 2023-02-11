@@ -13,20 +13,8 @@ authorized_keys_url: ""
 # firewall functionality
 remove_firewalld: yes
 
-# Specify if you want to open ports for this server if it's using firewalld, otherwise this value
-# will be ignored
-# The format is the following:
-# - 80/tcp
-open_ports: []
-
 # Install CloudWatch agent on Amazon Linux?
 install_cloudwatch: yes
-
-# Install sshguard?
-install_sshguard: yes
-
-# Install qemu-guest-agent?
-install_qemu_guest_agent: no
 
 # Remove OS bloat packages?
 remove_bloat: yes
@@ -34,14 +22,21 @@ remove_bloat: yes
 # Should we update the kernel when this playbook run? That requires a reboot
 update_kernel: yes
 
+# Automatic updates
+# -----------------
+
 # Should we configure the automatic updates?
 automatic_update_download_time: 02:00
+automatic_update_reboot: yes
+
+# The options below are only applicable to Debian
+# -----------------------------------------------
+
 automatic_update_start_time: 02:30
 automatic_update_email_report: ""
 
 # When automatic updates are on, should we update the kernel as well? Those always require a reboot
 automatic_update_kernel: yes
 
-# Should we reboot whenever necessary after an update?
-automatic_update_reboot: yes
+# When should we reboot after a update that requires it?
 automatic_update_reboot_time: 03:00

@@ -1,0 +1,4 @@
+---
+- import_tasks: install_epel.yml
+- import_tasks: install_auter.yml
+- import_tasks: install_packages_rhel.yml

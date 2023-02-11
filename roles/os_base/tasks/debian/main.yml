@@ -1,0 +1,5 @@
+---
+- import_tasks: debian_workarounds.yml
+- import_tasks: configure_apt_debian.yml
+- import_tasks: install_unattended_upgrades.yml
+- import_tasks: install_packages_debian.yml

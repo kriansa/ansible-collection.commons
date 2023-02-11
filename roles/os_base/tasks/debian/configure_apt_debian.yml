@@ -1,8 +1,8 @@
 ---
-- name: use debian CDN
+- name: use debian CDN and enable non-free repo
   become: true
   ansible.builtin.template:
-    src: files/sources.list.j2
+    src: sources.list.j2
     dest: /etc/apt/sources.list
 
 - name: update apt
