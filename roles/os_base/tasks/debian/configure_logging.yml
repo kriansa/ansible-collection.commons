@@ -1,0 +1,41 @@
+---
+- name: remove rsyslog
+  become: true
+  when: ansible_facts['distribution_major_version'] == "11"
+  ansible.builtin.apt: name=rsyslog state=removed autoremove=yes purge=yes
+
+- name: make dpkg log to syslog
+  become: true
+  ansible.builtin.blockinfile:
+   dest: /etc/dpkg/dpkg.cfg
+   block: |
+    # Log to syslog
+    status-logger "logger -t dpkg -p info"
+
+- name: disable logging dpkg to file
+  become: true
+  ansible.builtin.lineinfile:
+    dest: /etc/dpkg/dpkg.cfg
+    regexp: "^log /var/log/dpkg.log$"
+    line: "# log /var/log/dpkg.log"
+
+- name: remove old logs
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - auth.log
+    - chrony
+    - cloud-init.log
+    - cloud-init-output.log
+    - daemon.log
+    - debug
+    - dpkg.log
+    - faillog
+    - kern.log
+    - messages
+    - runit
+    - syslog
+    - unattended-upgrades
+    - user.log

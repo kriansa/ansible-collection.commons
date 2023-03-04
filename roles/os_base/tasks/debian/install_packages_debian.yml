@@ -1,4 +1,19 @@
 ---
+- name: remove chrony
+  become: true
+  when: ansible_facts['distribution_major_version'] == "11"
+  ansible.builtin.apt: name=chrony state=removed autoremove=yes purge=yes
+
+- name: install systemd-timesyncd
+  become: true
+  when: ansible_facts['distribution_major_version'] == "11"
+  ansible.builtin.apt: name=systemd-timesyncd state=latest
+
+- name: install dbus-broker
+  become: true
+  notify: reboot
+  ansible.builtin.apt: name=dbus-broker state=latest
+
 - name: hold kernel if upgrade is not required
   become: true
   when: update_kernel == false

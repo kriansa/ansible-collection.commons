@@ -1,9 +1,18 @@
 ---
 - name: use debian CDN and enable non-free repo
   become: true
+  when: ansible_facts['distribution_major_version'] == "11"
   ansible.builtin.template:
     src: files/sources.list.j2
     dest: /etc/apt/sources.list
+
+- name: allow using contrib and non-free repos
+  become: true
+  when: ansible_facts['distribution_major_version'] != "11"
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/debian.sources
+    regexp: '^Components: main$'
+    replace: 'Components: main contrib non-free non-free-firmware'
 
 - name: update apt
   become: true

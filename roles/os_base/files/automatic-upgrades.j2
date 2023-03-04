@@ -17,12 +17,20 @@ Unattended-Upgrade {
   // have a working mail setup on your system. A package that provides
   // 'mailx' must be installed. E.g. "user@example.com"
   Mail "{{ automatic_update_email_report }}";
+  MailReport "only-on-error";
 
   {% if automatic_update_kernel == False %}
   Package-Blacklist {
     "^linux-image-";
   };
   {% endif %}
+
+  // Do automatic removal of unused packages after the upgrade
+  // (equivalent to apt-get autoremove)
+  Remove-Unused-Dependencies "true";
+
+  // Enable logging to syslog. Default is False
+  SyslogEnable "true";
 
   // Enable automatic reboot if needed
   Automatic-Reboot "{{ 'true' if automatic_update_reboot else 'false' }}";
