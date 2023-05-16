@@ -37,6 +37,9 @@
   become: true
   ansible.builtin.file: path=/etc/sudoers.d/90-cloud-init-users state=absent
 
+- name: reset ssh connection
+  ansible.builtin.meta: reset_connection
+
 - name: lock root user password
   become: true
   ansible.builtin.user:
