@@ -24,19 +24,22 @@
   become: true
   ansible.builtin.dnf: name=firewalld* state=removed
 
-- name: upgrade all packages
+- name: upgrade all packages (except kernel)
   become: true
+  when: update_kernel == false
   ansible.builtin.dnf:
     name: '*'
     state: latest
     update_cache: true
     exclude: kernel*
 
-- name: upgrade the kernel
-  notify: reboot
+- name: upgrade all packages (including kernel)
   become: true
   when: update_kernel == true
-  ansible.builtin.dnf: name=kernel* state=latest
+  ansible.builtin.dnf:
+    name: '*'
+    state: latest
+    update_cache: true
 
 - name: check if a reboot is required
   ansible.builtin.shell: needs-restarting --reboothint
