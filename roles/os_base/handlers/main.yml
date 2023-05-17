@@ -27,13 +27,6 @@
   become: true
   ansible.builtin.systemd: daemon_reload=yes
 
-- name: enable auter schedule
+- name: restart qemu-guest-agent
   become: true
-  ansible.builtin.systemd: name={{ item }} enabled=yes
-  with_items:
-    - auter.service
-    - auter.timer
-
-- name: enable qemu-guest-agent
-  become: true
-  ansible.builtin.systemd: name=qemu-guest-agent state=restarted enabled=yes
+  ansible.builtin.systemd: name=qemu-guest-agent state=restarted

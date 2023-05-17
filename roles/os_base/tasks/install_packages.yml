@@ -10,7 +10,11 @@
 - name: install qemu-guest-agent
   become: true
   when: ansible_facts.chassis_vendor == "QEMU"
-  notify: enable qemu-guest-agent
+  notify: restart qemu-guest-agent
   ansible.builtin.package:
     name: qemu-guest-agent
     state: latest
+
+- name: enable qemu-guest-agent
+  become: true
+  ansible.builtin.systemd: name=qemu-guest-agent enabled=yes

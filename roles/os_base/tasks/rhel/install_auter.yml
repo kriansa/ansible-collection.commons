@@ -13,10 +13,16 @@
 
 - name: install auter systemd timers
   become: true
-  ansible.builtin.template: src={{ item }} dest=/etc/systemd/system
+  ansible.builtin.template: src={{ item.src }} dest=/etc/systemd/system/{{ item.dest }}
   with_items:
-    - files/auter.service
-    - files/auter.timer.j2
+    - { src: files/auter.service, dest: auter.service }
+    - { src: files/auter.timer.j2, dest: auter.timer }
   notify:
     - reload systemd daemon
-    - enable auter schedule
+
+- name: enable auter schedule
+  become: true
+  ansible.builtin.systemd: name={{ item }} enabled=yes daemon_reload=yes
+  with_items:
+    - auter.service
+    - auter.timer
