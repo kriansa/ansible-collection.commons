@@ -6,9 +6,7 @@ A basic OS setup for my current RHEL/Debian based Linux baselines.
 Role Variables
 --------------
 
-* **hostname** - Defines the hostname.
-* **install_cloudwatch** - Whether to install AWS CloudWatch Agent. (default=True)
-* **update_kernel** - Whether to update Kernel or not when this playbook runs
+See [defaults/main.yml](defaults/main.yml)
 
 Example Playbook
 ----------------

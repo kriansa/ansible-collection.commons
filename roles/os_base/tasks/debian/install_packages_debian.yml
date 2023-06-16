@@ -1,23 +1,46 @@
 ---
-- name: remove chrony
+- when: ansible_facts['distribution_major_version'] == "11"
   become: true
-  when: ansible_facts['distribution_major_version'] == "11"
-  ansible.builtin.apt: name=chrony state=removed autoremove=yes purge=yes
+  block:
+    - name: remove chrony
+      ansible.builtin.apt: name=chrony state=absent autoremove=yes purge=yes
 
-- name: install systemd-timesyncd
+    - name: install systemd-timesyncd
+      ansible.builtin.apt: name=systemd-timesyncd state=latest
+
+- name: gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: stop polkit
   become: true
-  when: ansible_facts['distribution_major_version'] == "11"
-  ansible.builtin.apt: name=systemd-timesyncd state=latest
+  when: '"polkitd" in ansible_facts.packages'
+  ansible.builtin.systemd: name=polkit state=stopped
+
+- name: remove polkitd
+  become: true
+  ansible.builtin.apt: name=polkitd state=absent autoremove=yes purge=yes
+
+- name: remove polkitd user
+  become: true
+  ansible.builtin.user: name=polkitd state=absent remove=yes
+
+- name: remove polkitd group
+  become: true
+  ansible.builtin.group: name=polkitd state=absent
+
+- name: install iproute2
+  become: true
+  ansible.builtin.apt: name=iproute2 state=latest
+
+- name: install python-is-python3
+  become: true
+  ansible.builtin.apt: name=python-is-python3 state=latest
 
 - name: install dbus-broker
   become: true
   notify: reboot
   ansible.builtin.apt: name=dbus-broker state=latest
-
-- name: hold kernel if upgrade is not required
-  become: true
-  when: update_kernel == false
-  ansible.builtin.shell: apt-mark hold 'linux-image-*'
 
 - name: upgrade all packages
   become: true
@@ -28,11 +51,6 @@
     autoremove: yes
     update_cache: true
     install_recommends: no
-
-- name: unhold kernel if needed
-  become: true
-  when: update_kernel == false
-  ansible.builtin.shell: apt-mark unhold 'linux-image-*'
 
 - name: check if a reboot is required
   ansible.builtin.shell: "[ -f /var/run/reboot-required ]"

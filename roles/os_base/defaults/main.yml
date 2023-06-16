@@ -3,7 +3,7 @@
 hostname: myserver
 
 # Admin user name. By default, we disable root user and turn this one into an admin which can get
-# super user access by using `doas`
+# super user access by using `sudo`
 username: admin
 
 # The URL to fetch the authorized_keys from (typically https://github.com/<your_username>.keys)
@@ -13,33 +13,21 @@ authorized_keys_url: ""
 # firewall functionality
 remove_firewalld: yes
 
-# Install CloudWatch agent on Amazon Linux?
+# Install CloudWatch agent on Amazon Linux
 install_cloudwatch: yes
 
 # Should we install SSHGuard for public-facing SSH servers?
 install_sshguard: no
 
-# Remove OS bloat packages?
+# Remove OS bloat packages not required for servers
 remove_bloat: yes
 
-# Should we update the kernel when this playbook run? That requires a reboot
-update_kernel: yes
+# Should we reboot after the playbook has run if required
+reboot_if_needed: yes
 
-# Automatic updates
-# -----------------
-
-# Should we configure the automatic updates?
-automatic_update_download_time: 02:00
+# Automatic updates (timezones available at `timedatectl list-timezones`)
+automatic_update_enabled: yes
+automatic_update_download_time: 02:00 UTC
+automatic_update_start_time: 02:30 UTC
 automatic_update_reboot: yes
-
-# The options below are only applicable to Debian
-# -----------------------------------------------
-
-automatic_update_start_time: 02:30
-automatic_update_email_report: ""
-
-# When automatic updates are on, should we update the kernel as well? Those always require a reboot
-automatic_update_kernel: yes
-
-# When should we reboot after a update that requires it?
-automatic_update_reboot_time: 03:00
+automatic_update_reboot_time: 03:00 UTC

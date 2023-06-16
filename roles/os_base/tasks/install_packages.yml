@@ -17,4 +17,5 @@
 
 - name: enable qemu-guest-agent
   become: true
+  when: ansible_facts.chassis_vendor == "QEMU"
   ansible.builtin.systemd: name=qemu-guest-agent enabled=yes

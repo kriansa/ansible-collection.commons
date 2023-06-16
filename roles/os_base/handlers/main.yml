@@ -1,4 +1,25 @@
 ---
+- name: update grub
+  become: true
+  ansible.builtin.script: update-grub
+
+- name: reboot
+  become: true
+  when: reboot_if_needed == true
+  ansible.builtin.shell: shutdown -r +1
+
+- name: add journald persistent path
+  become: true
+  ansible.builtin.command: systemd-tmpfiles --create --prefix /var/log/journal
+
+- name: reload systemd daemon
+  become: true
+  ansible.builtin.systemd: daemon_reload=yes
+
+- name: shutdown polkit
+  become: true
+  ansible.builtin.systemd: name=polkit state=stopped
+
 - name: restart ssh
   become: true
   ansible.builtin.systemd: name=sshd state=restarted
@@ -7,26 +28,18 @@
   become: true
   ansible.builtin.service: name=amazon-cloudwatch-agent enabled=yes state=restarted
 
-- name: reboot
-  become: true
-  ansible.builtin.shell: shutdown -r +1
-
-- name: add journald persistent path
-  become: true
-  ansible.builtin.command: systemd-tmpfiles --create --prefix /var/log/journal
-
 - name: restart systemd-journald
   become: true
   ansible.builtin.service: name=systemd-journald state=restarted
 
-- name: update grub
-  become: true
-  ansible.builtin.script: update-grub
-
-- name: reload systemd daemon
-  become: true
-  ansible.builtin.systemd: daemon_reload=yes
-
 - name: restart qemu-guest-agent
   become: true
   ansible.builtin.systemd: name=qemu-guest-agent state=restarted
+
+- name: restart NetworkManager
+  become: true
+  ansible.builtin.systemd: name=NetworkManager state=restarted
+
+- name: restart cpupower
+  become: true
+  ansible.builtin.systemd: name=cpupower enabled=yes state=restarted

@@ -1,0 +1,9 @@
+[Unit]
+Description=Reboot if needed after an update
+
+[Timer]
+OnCalendar=*-*-* {{ automatic_update_reboot_time }}
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

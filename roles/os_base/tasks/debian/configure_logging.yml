@@ -2,7 +2,7 @@
 - name: remove rsyslog
   become: true
   when: ansible_facts['distribution_major_version'] == "11"
-  ansible.builtin.apt: name=rsyslog state=removed autoremove=yes purge=yes
+  ansible.builtin.apt: name=rsyslog state=absent autoremove=yes purge=yes
 
 - name: make dpkg log to syslog
   become: true

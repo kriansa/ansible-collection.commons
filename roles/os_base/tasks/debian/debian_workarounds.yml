@@ -1,8 +1,11 @@
 ---
-# see: https://bugzilla.sudo.ws/show_bug.cgi?id=916
-- name: disable dns lookups on sudo on debian
+- name: disable dns lookups for sudo
   become: true
+  when: ansible_facts['distribution_major_version'] == "11"
   ansible.builtin.copy:
-    content: "Defaults !fqdn"
+    content: |
+      # Disable FQDN lookups
+      # see: https://bugzilla.sudo.ws/show_bug.cgi?id=916
+      Defaults !fqdn
     dest: /etc/sudoers.d/01-no-fqdn
     mode: "0600"

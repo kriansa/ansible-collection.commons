@@ -1,4 +1,5 @@
 ---
 - import_tasks: install_epel.yml
-- import_tasks: install_auter.yml
+- import_tasks: install_dnf_automatic.yml
 - import_tasks: install_packages_rhel.yml
+- import_tasks: tune_rhel.yml

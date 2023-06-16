@@ -33,10 +33,6 @@
     dest: /etc/sudoers.d/10-wheel
     mode: "0600"
 
-- name: remove default cloud-init generated sudoers file
-  become: true
-  ansible.builtin.file: path=/etc/sudoers.d/90-cloud-init-users state=absent
-
 - name: reset ssh connection
   ansible.builtin.meta: reset_connection
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=Automatically reboot the system if required by updates
+# See comment in dnf-makecache.service
+ConditionPathExists=!/run/ostree-booted
+
+[Service]
+Type=oneshot
+ExecStart=sh -c "needs-restarting --reboothint || systemctl reboot"

@@ -14,7 +14,7 @@
     regexp: '^Components: main$'
     replace: 'Components: main contrib non-free non-free-firmware'
 
-- name: update apt
+- name: update apt cache
   become: true
   ansible.builtin.apt:
     update_cache: yes

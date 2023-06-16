@@ -1,0 +1,25 @@
+---
+- name: remove apps not useful for servers
+  become: true
+  ansible.builtin.dnf:
+    state: absent
+    name:
+      - gssproxy
+      - rpcbind
+
+- name: remove rsyslog
+  become: true
+  ansible.builtin.dnf: name=rsyslog state=absent
+
+- name: remove old logs
+  become: true
+  ansible.builtin.file:
+    path: /var/log/{{ item }}
+    state: absent
+  loop:
+    - cron
+    - firewalld
+    - messages
+    - secure
+    - spooler
+    - sssd

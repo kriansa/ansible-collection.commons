@@ -1,8 +1,7 @@
 ---
 - name: install unattended-upgrades package
   become: true
-  ansible.builtin.apt:
-    name: unattended-upgrades
+  ansible.builtin.apt: name=unattended-upgrades
 
 - name: configure automatic upgrades
   become: true
@@ -10,23 +9,33 @@
     src: files/automatic-upgrades.j2
     dest: /etc/apt/apt.conf.d/90automatic-upgrades
 
-- name: create apt-daily.timer systemd folders
+- name: create folders for applying timer overrides
   become: true
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: /etc/systemd/system/{{ item }}.timer.d
     state: directory
   loop:
-    - /etc/systemd/system/apt-daily.timer.d
-    - /etc/systemd/system/apt-daily-upgrade.timer.d
+    - apt-daily
+    - apt-daily-upgrade
 
-- name: set time for downloading automatic updates
+- name: override timers
   become: true
   ansible.builtin.template:
-    src: files/apt-daily.timer.j2
-    dest: /etc/systemd/system/apt-daily.timer.d/override.conf
+    src: files/{{ item }}.timer.j2
+    dest: /etc/systemd/system/{{ item }}.timer.d/override.conf
+  loop:
+    - apt-daily
+    - apt-daily-upgrade
 
-- name: set time for installing automatic updates
+- name: force reload the systemd daemon
   become: true
-  ansible.builtin.template:
-    src: files/apt-daily-upgrade.timer.j2
-    dest: /etc/systemd/system/apt-daily-upgrade.timer.d/override.conf
+  ansible.builtin.systemd: daemon_reload=yes
+
+- name: configure automatic updates
+  become: true
+  ansible.builtin.systemd:
+    name: "{{ item }}.timer"
+    enabled: "{{ automatic_update_enabled }}"
+  loop:
+    - apt-daily
+    - apt-daily-upgrade

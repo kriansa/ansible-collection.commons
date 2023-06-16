@@ -2,7 +2,7 @@
 - name: remove bloat software
   when: remove_bloat
   become: true
-  ansible.builtin.dnf: name={{ packages }} state=removed
+  ansible.builtin.dnf: name={{ packages }} state=absent
   vars:
     packages:
       - cockpit
@@ -22,20 +22,10 @@
 - name: remove firewalld
   when: remove_firewalld
   become: true
-  ansible.builtin.dnf: name=firewalld* state=removed
+  ansible.builtin.dnf: name=firewalld* state=absent
 
-- name: upgrade all packages (except kernel)
+- name: upgrade all packages
   become: true
-  when: update_kernel == false
-  ansible.builtin.dnf:
-    name: '*'
-    state: latest
-    update_cache: true
-    exclude: kernel*
-
-- name: upgrade all packages (including kernel)
-  become: true
-  when: update_kernel == true
   ansible.builtin.dnf:
     name: '*'
     state: latest

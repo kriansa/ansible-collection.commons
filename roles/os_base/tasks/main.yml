@@ -25,3 +25,5 @@
 - import_tasks: configure_journal.yml
 - import_tasks: grub_tuning.yml
 - import_tasks: security_hardening.yml
+- import_tasks: performance_tuning.yml
+- import_tasks: remove_cloudinit.yml
