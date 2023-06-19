@@ -4,3 +4,4 @@
 - import_tasks: install_unattended_upgrades.yml
 - import_tasks: install_packages_debian.yml
 - import_tasks: configure_logging.yml
+- import_tasks: remove_netplan.yml

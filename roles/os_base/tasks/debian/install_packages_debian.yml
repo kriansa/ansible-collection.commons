@@ -8,10 +8,6 @@
     - name: install systemd-timesyncd
       ansible.builtin.apt: name=systemd-timesyncd state=latest
 
-- name: gather package facts
-  ansible.builtin.package_facts:
-    manager: auto
-
 - name: stop polkit
   become: true
   when: '"polkitd" in ansible_facts.packages'

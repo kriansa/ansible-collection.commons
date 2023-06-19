@@ -13,6 +13,9 @@ authorized_keys_url: ""
 # firewall functionality
 remove_firewalld: yes
 
+# Debian 12 introduces netplan to manage its systemd-networkd configuration. Should we remove it?
+remove_netplan: yes
+
 # Install CloudWatch agent on Amazon Linux
 install_cloudwatch: yes
 
