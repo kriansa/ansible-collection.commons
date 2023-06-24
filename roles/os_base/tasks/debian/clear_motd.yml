@@ -1,0 +1,19 @@
+---
+- name: check sha256 sum of /etc/motd
+  become: true
+  ansible.builtin.stat: path=/etc/motd checksum_algorithm=md5
+  register: motd_stat
+
+- name: clear default motd message
+  become: true
+  when: motd_stat.stat.checksum == "9830e3dbb6a828f2cc824db8db0ceaf7"
+  ansible.builtin.copy: dest=/etc/motd content=""
+
+- name: use a shorter motd uname
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/update-motd.d/10-uname
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      echo $(lsb_release -ds 2>/dev/null) [Kernel $(uname -r)]

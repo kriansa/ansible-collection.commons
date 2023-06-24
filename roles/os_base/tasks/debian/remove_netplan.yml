@@ -3,9 +3,7 @@
   when: remove_netplan and "netplan.io" in ansible_facts.packages
   block:
     - name: remove netplan
-      become: true
       ansible.builtin.apt: name=netplan.io state=absent autoremove=yes purge=yes
 
     - name: move generated configuration to systemd-networkd config path
-      become: true
       ansible.builtin.shell: mv /run/systemd/network/* /etc/systemd/network

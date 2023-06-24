@@ -1,6 +1,6 @@
 ---
 - name: check if this system uses grub
-  stat: path=/etc/default/grub
+  ansible.builtin.stat: path=/etc/default/grub
   register: grub
 
 - name: enforce grub timeout of 1 second

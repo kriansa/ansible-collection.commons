@@ -24,7 +24,7 @@
     group: "{{ username }}"
 
 - become: yes
-  stat:
+  ansible.builtin.stat:
     path: "/home/{{ username }}/.ssh/authorized_keys"
   register: keys_file
 
