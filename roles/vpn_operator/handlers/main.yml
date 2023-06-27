@@ -1,0 +1,12 @@
+---
+- name: reload systemd daemon
+  become: true
+  ansible.builtin.systemd: daemon_reload=yes
+
+- name: restart wg-reresolve-dns
+  become: true
+  ansible.builtin.systemd: name=wg-reresolve-dns.service state=restarted
+
+- name: restart ssh
+  become: true
+  ansible.builtin.systemd: name=sshd.service state=restarted

@@ -1,0 +1,496 @@
+#!/usr/bin/env bash
+#
+# sheepod [OPTIONS] <file> [...]
+#
+# Dependencies: podman
+
+_help() {
+  echo "Usage: sheepod [OPTIONS] <FILE1> [<FILE2>]"
+  echo
+  echo "Run infrastructure commands based on a playbook file."
+  echo
+  echo "Arguments:"
+  echo "  <FILE>                  Load and execute a file"
+  echo
+  echo "Options:"
+  echo "  -h, --help              Show this help message"
+}
+
+_main() {
+  set -o pipefail
+
+  declare SYSTEMD_PREFIX="ct"
+  declare SYSTEMD_UNITS_PATH="/etc/systemd/system"
+
+  # Parse the command and run the script called from CLI
+  declare ARGS=()
+  _parse-cli "$@"
+
+  for file in "${ARGS[@]}"; do
+    # shellcheck disable=SC1090
+    source "$file"
+  done
+
+  # Cleanup all unused images
+  podman image prune --all --force
+}
+
+_parse-cli() {
+  local _parse_opts=0
+
+  while [ $# -gt 0 ]; do
+    # At this point on we're only supposed to parse the arguments, not options
+    if [ $_parse_opts -eq 1 ]; then
+      ARGS+=("$1")
+      shift
+      continue
+    fi
+
+    case $1 in
+      --help|-h)
+        _help
+        exit
+        ;;
+
+      --)
+        _parse_opts=1
+        shift
+        ;;
+      -*)
+        echo "Unknown option: $1"
+        exit 1
+        ;;
+      *)
+        ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  for file in "${ARGS[@]}"; do
+    if [ ! -r "$file" ]; then
+      echo "File '$file' not found!"
+      exit 1
+    fi
+  done
+
+  if [ "${#ARGS[@]}" -eq 0 ]; then
+    echo "You must pass at least a single file as an argument!"
+    exit 1
+  fi
+}
+
+run-mysql-query() {
+  local ns=$1; shift
+  local container=$1; shift
+
+  local fullname="$ns-$container"
+  local root_password; root_password=$(get-secret "$ns" "${container}-root-password"); status=$?
+
+  if [ $status -ne 0 ]; then
+    echo "Failure to run SQL query!"
+    return 1
+  fi
+
+  podman exec -i "$fullname" mysql --user=root --password="$root_password" "$@"
+}
+
+create-mysql-user() {
+  local ns=$1
+  local db_container=$2
+  local username=$3
+
+  local existing
+  existing=$(echo "SELECT 'yes' FROM mysql.user WHERE CONCAT(User, '@', Host) = '${username}@%'" | \
+    run-mysql-query "$ns" "$db_container" --skip-column-names); status=$?
+
+  if [ $status -ne 0 ]; then
+    echo "Failure to create MySQL user '$username' on [$ns] $db_container"
+    return 1
+  fi
+
+  if [ "$existing" = "yes" ]; then
+    return
+  fi
+
+  local password_key="${db_container}-${username}-password"
+  create-secret "$ns" "$password_key" --random
+  local password; password=$(get-secret "$ns" "$password_key")
+  echo "CREATE USER '$username'@'%' IDENTIFIED BY '$password';" | \
+    run-mysql-query "$ns" "$db_container" >/dev/null || return 1
+
+  echo "Created MySQL user '$username' on [$ns] $db_container"
+}
+
+create-mysql-schema() {
+  local ns=$1
+  local db_container=$2
+  local schema=$3
+  local username=$4
+
+  local password_key="${db_container}-${username}-password"
+  local password; password=$(get-secret "$ns" "$password_key"); status=$?
+
+  if [ $status -ne 0 ]; then
+    echo "Failure to create MySQL schema '$schema' on [$ns] $db_container"
+    return 1
+  fi
+
+  echo "CREATE DATABASE IF NOT EXISTS \`$schema\`;
+  GRANT ALL ON \`${schema//_/\\_}\`.* TO '$username'@'%';" | \
+    run-mysql-query "$ns" "$db_container" >/dev/null
+
+  echo "Created MySQL schema '$schema' on [$ns] $db_container"
+}
+
+rm-container() {
+  readonly SYSTEMD_UNITS_PATH SYSTEMD_PREFIX
+  local namespace=$1
+  local name=$2
+
+  local fullname="$namespace-$name"
+  local systemd_name="${SYSTEMD_PREFIX}-${fullname}"
+
+  systemctl disable --now "$systemd_name" 2> /dev/null || true
+  podman rm --force --ignore --volumes "$fullname"
+  rm -f "${SYSTEMD_UNITS_PATH}/${SYSTEMD_PREFIX}-${fullname}.service"
+  systemctl daemon-reload
+}
+
+wait-container-healthy() {
+  local ns=$1
+  local name=$2
+  local fullname="$ns-$name"
+
+  local status
+
+  echo -n "Waiting for container: [$ns] $name"
+  while true; do
+    health=$(podman container inspect --format "{{.State.Health.Status}}" "$fullname" 2>/dev/null)
+    status=$?
+
+    if [ $status -ne 0 ]; then
+      echo
+      echo "Container '$fullname' not found!"
+      return 1
+    fi
+
+    if [ "$health" = "healthy" ]; then
+      echo
+      echo "Container ready: [$ns] $name"
+      return 0
+    fi
+
+    sleep 1
+    echo -n "."
+  done
+}
+
+create-container() {
+  readonly SYSTEMD_UNITS_PATH SYSTEMD_PREFIX
+  local namespace=$1; shift
+  local name=$1; shift
+
+  local health_cmd="" user="" networks=() secrets=() volumes=() options=() args=() _parse_args=0
+  while [ $# -gt 0 ]; do
+    # At this point on we're only supposed to parse the arguments, not options
+    if [ $_parse_args -eq 1 ]; then
+      args+=("$1")
+      shift
+      continue
+    fi
+
+    case $1 in
+      --health-cmd=*)
+        health_cmd="${1#*=}"
+        shift
+        ;;
+      --health-cmd)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        health_cmd="$2"
+        shift; shift
+        ;;
+
+      --user=*)
+        user="${1#*=}"
+        shift
+        ;;
+      --user)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        user="$2"
+        shift; shift
+        ;;
+
+      --network=*)
+        networks+=("${1#*=}")
+        shift
+        ;;
+      --network)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        networks+=("$2")
+        shift; shift
+        ;;
+
+      --secret=*)
+        secrets+=("${1#*=}")
+        shift
+        ;;
+      --secret)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        secrets+=("$2")
+        shift; shift
+        ;;
+
+      --volume=*)
+        volumes+=("${1#*=}")
+        shift
+        ;;
+      --volume)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        volumes+=("$2")
+        shift; shift
+        ;;
+
+      --)
+        _parse_args=1
+        shift
+        ;;
+      -*)
+        options+=("$1" "$2")
+        shift; shift
+        ;;
+      *)
+        _parse_args=1
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  local fullname="$namespace-$name"
+  local systemd_name="${SYSTEMD_PREFIX}-${fullname}"
+
+  systemctl stop "$systemd_name" 2> /dev/null || true
+  podman rm --force --ignore --volumes "$fullname" 2>/dev/null
+
+  if [ -n "$health_cmd" ]; then
+    options+=(
+      --health-cmd "$health_cmd"
+      --health-interval 10s
+      --health-start-period 5s
+      --health-timeout 9s
+      --health-retries 3
+      --health-on-failure kill
+    )
+  fi
+
+  if [ -n "$user" ]; then
+    # Parse user with id-mapping embedded
+    # --user mysql:idmap=10000,size=1000 \
+    if [[ $user == *":"* ]]; then
+      local username mappings mappings_array mapdef key value idmapping_start size=9000
+
+      username=${user%:*}
+      mappings=${user#*:}
+      IFS=, read -ra mappings_array <<< "$mappings"
+
+      for mapdef in "${mappings_array[@]}"; do
+        key=${mapdef%=*}
+        value=${mapdef#*=}
+
+        case "$key" in
+          idmap) idmapping_start="$value" ;;
+          size) size="$value" ;;
+        esac
+      done
+
+      if [ -z "$idmapping_start" ] || [ -z "$size" ]; then
+        echo "When passing a mapping along with --user, you need to specify both 'idmap' and 'size'!"
+        echo "Example: --user mysql:idmap=10000,size=1000"
+        return 1
+      fi
+
+      options+=(--userns "auto:gidmapping=0:${idmapping_start}:${size},uidmapping=0:${idmapping_start}:${size}")
+      user="$username"
+    fi
+
+    options+=(--user "$user")
+  fi
+
+  if [ "${#volumes[@]}" -gt 0 ]; then
+    local chown_perms
+
+    # When declaring volumes and we have both an user and id-mapping set, then we try to change the
+    # ownership of that folder to that user on the host volume. This is somewhat similar to what the
+    # volume flag `U` does, but instead of doing it recursively, it does it only at the root volume
+    if [ -n "$user" ] && [ -n "$idmapping_start" ]; then
+      local oci_image full_id_cmd
+      oci_image="${args[0]}"
+      full_id_cmd="echo \$(( \$(id -u) + $idmapping_start )):\$(( \$(id -g) + $idmapping_start ))"
+      chown_perms=$(podman run --rm --quiet --entrypoint '["/bin/sh","-c"]' --user "$user" \
+        "$oci_image" "$full_id_cmd")
+    fi
+
+    for volume in "${volumes[@]}"; do
+      local host_volume="${volume%%:*}"
+      if [ ! -e "$host_volume" ]; then
+        mkdir -p "$host_volume" || return 1
+      fi
+
+      if [ -n "$chown_perms" ]; then
+        chown "$chown_perms" "$host_volume" || return 1
+      fi
+
+      options+=(--volume "$volume")
+    done
+  fi
+
+  if [ "${#secrets[@]}" -gt 0 ]; then
+    for secret in "${secrets[@]}"; do
+      options+=(--secret "$namespace-$secret")
+    done
+  fi
+
+  if [ "${#networks[@]}" -gt 0 ]; then
+    for network in "${networks[@]}"; do
+      options+=(--network "$network")
+    done
+  else
+    options+=(--network "$namespace")
+  fi
+
+  podman create --name "$fullname" "${options[@]}" "${args[@]}" >/dev/null
+
+  ( cd "$SYSTEMD_UNITS_PATH" && podman generate systemd \
+    --files --new --name --container-prefix="$SYSTEMD_PREFIX" "$fullname" >/dev/null )
+  podman rm --volumes "$fullname" >/dev/null
+
+  systemctl daemon-reload && systemctl enable --now "$systemd_name" 2>/dev/null
+  echo "Container created: [$namespace] $name (systemd: $systemd_name)"
+}
+
+registry-auth() {
+  local url=$1
+  local credential_ns=$2
+  local username_secret=$3
+  local password_secret=$4
+
+  local username; username="$(get-secret "$credential_ns" "$username_secret")"
+  get-secret "$credential_ns" "$password_secret" | \
+    podman login --username "$username" --password-stdin "$url"
+}
+
+create-network() {
+  local network=$1
+  if podman network exists "$network"; then
+    echo "Network exists: $network"
+    return
+  fi
+
+  podman network create "$network" >/dev/null || true
+  echo "Network created: $network"
+}
+
+create-secret() {
+  local ns=$1
+  local name=$2
+  local option=$3
+
+  local fullname="$ns-$name"
+
+  if [ "$option" == "--random" ]; then
+    local passwd; passwd=$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1 || true)
+    printf "%s" "$passwd" | podman secret create "$fullname" - >/dev/null 2>&1; status=$?
+
+    if [ $status -eq 0 ]; then
+      echo "Password created for [$ns] $name: $passwd"
+    fi
+  else
+    podman secret create "$fullname" - >/dev/null 2>&1; status=$?
+    if [ $status -ne 0 ]; then
+      echo "Secret exists: [$ns] $name"
+    else
+      echo "Secret created: [$ns] $name"
+    fi
+  fi
+
+  return 0
+}
+
+update-secret() {
+  local ns=$1
+  local name=$2
+  local option=$3
+
+  local fullname="$ns-$name"
+
+  # podman-secret-exists is only available on 4.5.0
+  if ! podman secret inspect "$fullname" >/dev/null 2>&1; then
+    echo "Secret '$fullname' not found!" >&2
+    return 1
+  fi
+
+  podman secret rm "$fullname" >/dev/null
+  create-secret "$ns" "$name" "$option"
+}
+
+get-secret() {
+  local ns=$1
+  local name=$2
+
+  local secrets_path=/var/lib/containers/storage/secrets
+  local fullname="${ns}-${name}"
+  local keyid; keyid=$(_jq "['nameToID']['$fullname']" ${secrets_path}/secrets.json); status=$?
+
+  if [ $status -ne 0 ]; then
+    echo "Secret '$fullname' not found!" >&2
+    return 1
+  fi
+
+  _jq "['$keyid']" ${secrets_path}/filedriver/secretsdata.json | base64 -d
+}
+
+_jq() {
+  # This emulates partially `jq` and it's only being used here until `podman secrets` gets more
+  # features such as reading secrets
+  # See: https://github.com/containers/podman/issues/18667
+  local query=$1
+  local filename=$2
+  local value; value=$(python3 -c "import json, sys; print(json.loads(sys.stdin.read())${query})" \
+    2>&1 < "$filename"); status=$?
+
+  test $status -ne 0 && return 1
+  echo -n "$value"
+}
+
+require-secrets() {
+  local ns=$1; shift
+
+  for secret in "$@"; do
+    local fullname="$ns-$secret"
+
+    # podman-secret-exists is only available on 4.5.0
+    if ! podman secret inspect "$fullname" >/dev/null 2>&1; then
+      echo "Secret '$fullname' not found!" >&2
+      return 1
+    fi
+  done
+}
+
+exec-on-container() {
+  local ns=$1; shift
+  local name=$1; shift
+  local fullname="$ns-$name"
+
+  podman exec "$fullname" "$@"
+}
+
+restart-container() {
+  local ns=$1
+  local name=$2
+  local fullname="$ns-$name"
+
+  podman restart "$fullname"
+}
+
+_main "$@"

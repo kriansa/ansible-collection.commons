@@ -1,0 +1,35 @@
+[Match]
+Name=vpn
+
+[Network]
+Description=Allow all packets coming from VPN
+Address={{ vpn_ip }}/32
+
+# These below rules explicitly allow any packet coming from the wg interface to return to it,
+# regardless of existing routes, so that, for instance, if you have a wide `AllowedIPs` but don't
+# want to turn the wg interface a default for initiated connections, you could still be able to
+# receive and reply packets from the wg.
+#
+# The equivalent configuration in a wireguard config file would be:
+#   [Interface]
+#   PrivateKey = ...
+#   Address = ...
+#   Table = off
+#   PostUp = ip rule add from {{ vpn_ip }} table 200; ip route add default via {{ vpn_ip }} dev %i table 200
+#   PreDown = ip rule del from {{ vpn_ip }} table 200; ip route del default via {{ vpn_ip }} dev %i table 200
+
+[RoutingPolicyRule]
+From={{ vpn_ip }}
+Table=200
+Priority=32765
+
+[Route]
+Destination=0.0.0.0/0
+Gateway={{ vpn_ip }}
+Table=200
+
+# This is an extra route that just allows us to connect directly to the VPN gateway IP, it is not
+# required but it's useful for pinging it to check connectivity
+[Route]
+Destination={{ vpn_gateway }}/32
+Gateway={{ vpn_ip }}

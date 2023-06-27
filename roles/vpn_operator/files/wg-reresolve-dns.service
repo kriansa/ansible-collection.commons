@@ -1,0 +1,9 @@
+[Unit]
+Description=Wireguard endpoint domain automatic re-resolver
+
+[Service]
+ExecStart=/usr/local/bin/wg-reresolve-dns
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

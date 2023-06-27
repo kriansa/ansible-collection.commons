@@ -1,0 +1,40 @@
+---
+- import_tasks: configure_debian.yml
+  when: ansible_facts['os_family'] == 'Debian'
+
+- import_tasks: configure_rhel.yml
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: add wg-reresolve-dns bin
+  become: true
+  notify: restart wg-reresolve-dns
+  ansible.builtin.copy:
+    src: wg-reresolve-dns
+    mode: "0755"
+    dest: /usr/local/bin/
+
+- name: add wireguard reresolver systemd unit
+  become: true
+  notify:
+    - reload systemd daemon
+    - restart wg-reresolve-dns
+  ansible.builtin.copy:
+    src: wg-reresolve-dns.service
+    dest: /etc/systemd/system/
+
+- name: enable wireguard reresolver
+  become: true
+  ansible.builtin.systemd:
+    name: wg-reresolve-dns.service
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: enable ssh through vpn only
+  become: true
+  notify: restart ssh
+  when: ssh_only_through_vpn == True
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    insertafter: '^#ListenAddress ::'
+    line: "ListenAddress {{ vpn_ip }}"

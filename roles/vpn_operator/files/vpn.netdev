@@ -1,0 +1,14 @@
+[NetDev]
+Name=vpn
+Kind=wireguard
+Description=vpn - wireguard tunnel
+
+[WireGuard]
+PrivateKey={{ vpn_private_key }}
+
+[WireGuardPeer]
+PresharedKey={{ vpn_endpoint_preshared_key }}
+PublicKey={{ vpn_endpoint_public_key }}
+Endpoint={{ vpn_endpoint }}
+AllowedIPs=0.0.0.0/0
+PersistentKeepalive=20

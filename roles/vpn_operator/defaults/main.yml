@@ -1,0 +1,17 @@
+---
+# VPN configuration
+
+# The VPN IP address that identifies this machine
+vpn_ip: 192.168.99.10
+
+# The gateway VPN IP
+vpn_gateway: 192.168.99.1
+
+# This machine's private key
+vpn_private_key: InvalidKey2oKQOuZiw8t3jgFDpt8vdebrx5+UFa3Uw=
+vpn_endpoint: your-vpn-endpoint-url:51000
+vpn_endpoint_preshared_key: InvalidKey9J1ggjp37KWQSjfMWFxFCCAMWZk4HNz1c=
+vpn_endpoint_public_key: InvalidKey4K8qXVYgf6vuzzMEVDRmY8S/364lVRa6g=
+
+# Whether to allow SSH only through VPN
+ssh_only_through_vpn: yes

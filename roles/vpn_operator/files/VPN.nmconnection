@@ -1,0 +1,41 @@
+[connection]
+id=VPN
+uuid=fb7b281a-397f-4e75-a667-99cf82b7612c
+type=wireguard
+interface-name=vpn
+
+[wireguard]
+private-key={{ vpn_private_key }}
+
+[wireguard-peer.{{ vpn_endpoint_public_key }}]
+endpoint={{ vpn_endpoint }}
+preshared-key={{ vpn_endpoint_preshared_key }}
+preshared-key-flags=0
+persistent-keepalive=20
+allowed-ips=0.0.0.0/0;
+
+[ipv4]
+address1={{ vpn_ip }}/32
+method=manual
+never-default=true
+# These rules explicitly allow any packet coming from the wg interface to return to it, regardless
+# of existing routes, so that, for instance, if you have a wide `AllowedIPs` but don't want to turn
+# the wg interface a default for initiated connections, you could still be able to receive and reply
+# packets from the wg.
+#
+# The equivalent configuration in a wireguard config file would be:
+#   [Interface]
+#   PrivateKey = ...
+#   Address = ...
+#   Table = off
+#   PostUp = ip rule add from {{ vpn_ip }} table 200; ip route add default via {{ vpn_ip }} dev %i table 200
+#   PreDown = ip rule del from {{ vpn_ip }} table 200; ip route del default via {{ vpn_ip }} dev %i table 200
+#
+route1=0.0.0.0/0,{{ vpn_ip }}/32
+route1_options=table=200
+routing-rule1=priority 32765 from {{ vpn_ip }}/32 table 200
+# Allow connecting to the gateway directly
+route2={{ vpn_gateway }}/32,{{ vpn_ip }}/32
+
+[ipv6]
+method=ignore

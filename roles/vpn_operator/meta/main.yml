@@ -1,0 +1,22 @@
+galaxy_info:
+  description: Configure a Wireguard VPN client and enforce SSH server through it
+  author: kriansa
+  license: BSD
+  min_ansible_version: 2.11
+
+  platforms:
+  - name: CentOS
+    versions:
+      - 9
+  - name: Amazon
+    versions:
+      - all
+  - name: Debian
+    versions:
+      - 12
+
+  galaxy_tags:
+    - linux-hardening
+    - os-primitives
+
+dependencies: []

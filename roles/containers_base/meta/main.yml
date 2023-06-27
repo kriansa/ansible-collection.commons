@@ -1,0 +1,19 @@
+galaxy_info:
+  description: Install my own container stuff
+  author: kriansa
+  license: BSD
+  min_ansible_version: 2.11
+
+  platforms:
+  - name: RedHat
+    versions:
+      - 9
+  - name: Debian
+    versions:
+      - 12
+
+  galaxy_tags:
+    - containers
+
+dependencies:
+  - role: podman

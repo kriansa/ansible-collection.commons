@@ -1,0 +1,12 @@
+---
+- name: add additional system binaries
+  become: true
+  ansible.builtin.copy:
+    src: bin/
+    mode: "0755"
+    dest: /usr/local/bin/
+
+- name: create conventional server folders on /srv
+  become: true
+  ansible.builtin.file: path="/srv/{{ item }}" state=directory mode=0755
+  loop: [data, config, backup]

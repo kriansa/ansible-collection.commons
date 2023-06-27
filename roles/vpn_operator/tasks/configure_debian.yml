@@ -1,0 +1,35 @@
+---
+- name: install wireguard-tools
+  become: true
+  ansible.builtin.apt: name=wireguard-tools
+
+- name: setup vpn interface
+  become: true
+  notify: restart ssh
+  ansible.builtin.template:
+    src: files/{{ item }}
+    mode: "0600"
+    owner: systemd-network
+    group: systemd-network
+    dest: /etc/systemd/network/{{ item }}
+  loop:
+    - vpn.netdev
+    - vpn.network
+
+- name: restart systemd-networkd to activate vpn
+  become: true
+  ansible.builtin.systemd: name=systemd-networkd state=restarted
+
+- name: create ssh service drop-in directory
+  become: true
+  ansible.builtin.file: state=directory path=/etc/systemd/system/sshd.service.d
+
+- name: add ssh drop-in to wait for wg to come up before starting up
+  become: true
+  notify: reload systemd daemon
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sshd.service.d/10-wait-wg.conf
+    content: |
+      [Unit]
+      After=network.target systemd-networkd.service
+      Requires=sys-devices-virtual-net-vpn.device
