@@ -66,6 +66,11 @@
         - name: remove python-setuptools
           ansible.builtin.apt: name=python3-setuptools state=absent autoremove=true purge=true
 
+- name: install python3-podman on rhel
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+  ansible.builtin.dnf: name=python3-podman
+
 - name: install podman
   become: true
   ansible.builtin.package: name=podman
