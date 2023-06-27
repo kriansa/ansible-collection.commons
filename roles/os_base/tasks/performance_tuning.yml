@@ -45,6 +45,7 @@
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     sysctl_set: yes
+    sysctl_file: /etc/sysctl.d/70-tuned-settings.conf
   loop:
       # Setup for when not acting as a router
     - { name: net.ipv4.conf.default.rp_filter, value: "2" }
