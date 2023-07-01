@@ -5,5 +5,8 @@
     - name: remove netplan
       ansible.builtin.apt: name=netplan.io state=absent autoremove=yes purge=yes
 
+    - name: remove netplan folder
+      ansible.builtin.file: name=/etc/netplan state=absent
+
     - name: move generated configuration to systemd-networkd config path
       ansible.builtin.shell: mv /run/systemd/network/* /etc/systemd/network
