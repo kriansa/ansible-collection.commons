@@ -14,13 +14,12 @@ _help() {
   echo
   echo "Options:"
   echo "  -h, --help              Show this help message"
+  echo "  -c, --config-file       Load the config from this path"
+  echo "                          (default: /etc/sheepod/env)"
 }
 
 _main() {
   set -o pipefail
-
-  declare SYSTEMD_PREFIX="ct"
-  declare SYSTEMD_UNITS_PATH="/etc/systemd/system"
 
   # Parse the command and run the script called from CLI
   declare ARGS=()
@@ -35,8 +34,56 @@ _main() {
   podman image prune --all --force
 }
 
+_load-config() {
+  local config_file=$1
+  if [ ! -r "$config_file" ]; then
+    # If specified a config file other than the default one, we validate if it exists, otherwise we
+    # silently ignore it
+    if [ "$config_file" != "/etc/sheepod/env" ]; then
+      echo "File '$env_file' not readable!" >&2
+      exit 1
+    fi
+  else
+    _load-env-file "$config_file"
+  fi
+
+  # Set defaults
+  SHEEPOD_HOST_VOLUME_BASEPATH=${SHEEPOD_HOST_VOLUME_BASEPATH:-"/srv"}
+  SHEEPOD_SYSTEMD_PREFIX=${SHEEPOD_SYSTEMD_PREFIX:-"ct"}
+  SHEEPOD_SYSTEMD_UNITS_PATH=${SHEEPOD_SYSTEMD_UNITS_PATH:-"/etc/systemd/system"}
+  SHEEPOD_SYSTEMD_DEPENDENCIES=${SHEEPOD_SYSTEMD_DEPENDENCIES:-""}
+  # In the future, if https://github.com/containers/podman/issues/19177 gets fixed, we can make
+  # `containers` a default for this variable
+  SHEEPOD_SYSTEMD_LOG_NAMESPACE=${SHEEPOD_SYSTEMD_LOG_NAMESPACE:-""}
+}
+
+# Load environment variables, but don't overwrite variables already set so we can override variables
+# via container vars
+_load-env-file() {
+  local env_file=$1
+
+  declare -A existing
+
+  # Load all existing variables in an associative array
+  while IFS= read -r -d $'\0' var; do
+    name="${var%%=*}"
+    existing[$name]=1
+  done < <(printenv -0)
+
+  while IFS= read -r -d $'\0' var; do
+    # We don't override the environment variables already set
+    name="${var%%=*}"
+    test -n "${existing[$name]}" && continue
+
+    # Then parse each value and export them individually
+    value="${var##*=}"
+    value="${value//\"/\\\"}"
+    eval "export $name=\"$value\""
+  done < <(env -i bash -c "set -a; source \"$env_file\"; printenv -0")
+}
+
 _parse-cli() {
-  local _parse_opts=0
+  local _parse_opts=0 config_file=/etc/sheepod/env
 
   while [ $# -gt 0 ]; do
     # At this point on we're only supposed to parse the arguments, not options
@@ -50,6 +97,17 @@ _parse-cli() {
       --help|-h)
         _help
         exit
+        ;;
+
+      --config-file=*)
+        config_file="${1#*=}"
+        shift
+        ;;
+
+      --config-file|-c)
+        test -z "${2:-}" && echo "No value for $1" && return 1
+        config_file="$2"
+        shift; shift
         ;;
 
       --)
@@ -66,6 +124,8 @@ _parse-cli() {
         ;;
     esac
   done
+
+  _load-config "$config_file"
 
   for file in "${ARGS[@]}"; do
     if [ ! -r "$file" ]; then
@@ -144,16 +204,16 @@ create-mysql-schema() {
 }
 
 rm-container() {
-  readonly SYSTEMD_UNITS_PATH SYSTEMD_PREFIX
+  readonly SHEEPOD_SYSTEMD_UNITS_PATH SHEEPOD_SYSTEMD_PREFIX
   local namespace=$1
   local name=$2
 
   local fullname="$namespace-$name"
-  local systemd_name="${SYSTEMD_PREFIX}-${fullname}"
+  local systemd_name="${SHEEPOD_SYSTEMD_PREFIX}-${fullname}"
 
   systemctl disable --now "$systemd_name" 2> /dev/null || true
   podman rm --force --ignore --volumes "$fullname"
-  rm -f "${SYSTEMD_UNITS_PATH}/${SYSTEMD_PREFIX}-${fullname}.service"
+  rm -f "${SHEEPOD_SYSTEMD_UNITS_PATH}/${SHEEPOD_SYSTEMD_PREFIX}-${fullname}.service"
   systemctl daemon-reload
 }
 
@@ -187,11 +247,11 @@ wait-container-healthy() {
 }
 
 create-container() {
-  readonly SYSTEMD_UNITS_PATH SYSTEMD_PREFIX
+  readonly SHEEPOD_SYSTEMD_UNITS_PATH SHEEPOD_SYSTEMD_PREFIX SHEEPOD_SYSTEMD_DEPENDENCIES
   local namespace=$1; shift
   local name=$1; shift
 
-  local health_cmd="" user="" networks=() secrets=() volumes=() options=() args=() _parse_args=0
+  local health_cmd="" user="" secrets=() volumes=() options=() args=() _parse_args=0
   while [ $# -gt 0 ]; do
     # At this point on we're only supposed to parse the arguments, not options
     if [ $_parse_args -eq 1 ]; then
@@ -206,7 +266,7 @@ create-container() {
         shift
         ;;
       --health-cmd)
-        test -z "${2:-}" && echo "No value for $1" && exit 1
+        test -z "${2:-}" && echo "No value for $1" && return 1
         health_cmd="$2"
         shift; shift
         ;;
@@ -216,18 +276,8 @@ create-container() {
         shift
         ;;
       --user)
-        test -z "${2:-}" && echo "No value for $1" && exit 1
+        test -z "${2:-}" && echo "No value for $1" && return 1
         user="$2"
-        shift; shift
-        ;;
-
-      --network=*)
-        networks+=("${1#*=}")
-        shift
-        ;;
-      --network)
-        test -z "${2:-}" && echo "No value for $1" && exit 1
-        networks+=("$2")
         shift; shift
         ;;
 
@@ -236,7 +286,7 @@ create-container() {
         shift
         ;;
       --secret)
-        test -z "${2:-}" && echo "No value for $1" && exit 1
+        test -z "${2:-}" && echo "No value for $1" && return 1
         secrets+=("$2")
         shift; shift
         ;;
@@ -246,7 +296,7 @@ create-container() {
         shift
         ;;
       --volume)
-        test -z "${2:-}" && echo "No value for $1" && exit 1
+        test -z "${2:-}" && echo "No value for $1" && return 1
         volumes+=("$2")
         shift; shift
         ;;
@@ -268,7 +318,7 @@ create-container() {
   done
 
   local fullname="$namespace-$name"
-  local systemd_name="${SYSTEMD_PREFIX}-${fullname}"
+  local systemd_name="${SHEEPOD_SYSTEMD_PREFIX}-${fullname}"
 
   systemctl stop "$systemd_name" 2> /dev/null || true
   podman rm --force --ignore --volumes "$fullname" 2>/dev/null
@@ -288,7 +338,7 @@ create-container() {
     # Parse user with id-mapping embedded
     # --user mysql:idmap=10000,size=1000 \
     if [[ $user == *":"* ]]; then
-      local username mappings mappings_array mapdef key value idmapping_start size=9000
+      local username mappings mappings_array mapdef key value idmapping_start size=1999
 
       username=${user%:*}
       mappings=${user#*:}
@@ -318,27 +368,47 @@ create-container() {
   fi
 
   if [ "${#volumes[@]}" -gt 0 ]; then
+    readonly SHEEPOD_HOST_VOLUME_BASEPATH
     local chown_perms
 
     # When declaring volumes and we have both an user and id-mapping set, then we try to change the
     # ownership of that folder to that user on the host volume. This is somewhat similar to what the
-    # volume flag `U` does, but instead of doing it recursively, it does it only at the root volume
+    # volume flag `U` does, but instead of doing it recursively, we do it only at the root volume so
+    # that you wouldn't need to `chown` that path on the host before creating the container. That
+    # is, however, not a replacement for the `U` volume mount option, as it won't change ownership
+    # in files recursively, it's rather a convenience for data directories.
     if [ -n "$user" ] && [ -n "$idmapping_start" ]; then
       local oci_image full_id_cmd
       oci_image="${args[0]}"
       full_id_cmd="echo \$(( \$(id -u) + $idmapping_start )):\$(( \$(id -g) + $idmapping_start ))"
+      # TODO: Not all images have shell installed -- fix this
       chown_perms=$(podman run --rm --quiet --entrypoint '["/bin/sh","-c"]' --user "$user" \
         "$oci_image" "$full_id_cmd")
     fi
 
     for volume in "${volumes[@]}"; do
       local host_volume="${volume%%:*}"
-      if [ ! -e "$host_volume" ]; then
-        mkdir -p "$host_volume" || return 1
+
+      # Add a %path% syntax sugar that will automatically set the host path to a well-known path
+      # For instance: the container named `database` on namespace `prd.onlyoffice` and a volume
+      #               mapping `%data%/lib` is translated to `/srv/data/prd.onlyoffice/database/lib`
+      if [[ "$host_volume" =~ ^%(.*)%(.*) ]]; then
+        host_volume="$(get-host-volume "$namespace" "$name" "${BASH_REMATCH[1]}")${BASH_REMATCH[2]}"
+        volume="${host_volume}:${volume#*:}"
       fi
 
-      if [ -n "$chown_perms" ]; then
-        chown "$chown_perms" "$host_volume" || return 1
+      # It's only considered a host volume if it starts with a slack (absolute path), otherwise
+      # that's a named volume and we don't touch them in that case
+      if [[ "$host_volume" =~ ^/ ]]; then
+        # When the mounted volume doesn't exist, we attempt to create a folder. If the intention is
+        # for it to be a file, then it must exist beforehand.
+        if [ ! -e "$host_volume" ]; then
+          mkdir -p "$host_volume" || return 1
+        fi
+
+        if [ -n "$chown_perms" ]; then
+          chown "$chown_perms" "$host_volume" || return 1
+        fi
       fi
 
       options+=(--volume "$volume")
@@ -351,18 +421,38 @@ create-container() {
     done
   fi
 
-  if [ "${#networks[@]}" -gt 0 ]; then
-    for network in "${networks[@]}"; do
-      options+=(--network "$network")
-    done
-  else
-    options+=(--network "$namespace")
+  # By default we always add the container to its namespace network (and create it if needed)
+  #
+  # podman has this funny bug where if you pass more than one --network argument, the last one
+  # cannot contain be a list o networks to connect.
+  # See: https://github.com/containers/podman/issues/19089
+  # e.g.: this would work:    podman run --network net1,net2 --network net3
+  #       but this would not: podman run --network net1 --network net2,net3
+  options+=(--network "$namespace")
+  create-network "$namespace" >/dev/null || return 1
+
+  podman create --name "$fullname" "${options[@]}" "${args[@]}" >/dev/null || return 1
+
+  local generate_args=(--new --name --container-prefix="$SHEEPOD_SYSTEMD_PREFIX")
+  if [ -n "$SHEEPOD_SYSTEMD_DEPENDENCIES" ]; then
+    generate_args+=(
+      --requires="$SHEEPOD_SYSTEMD_DEPENDENCIES"
+      --after="$SHEEPOD_SYSTEMD_DEPENDENCIES"
+    )
   fi
 
-  podman create --name "$fullname" "${options[@]}" "${args[@]}" >/dev/null
+  # Adds a log namespace to all containers if defined
+  if [ -n "$SHEEPOD_SYSTEMD_LOG_NAMESPACE" ]; then
+    sed_program=$"/\[Service\]/ { n; /LogNamespace/!c LogNamespace=${SHEEPOD_SYSTEMD_LOG_NAMESPACE}
+    }" # There has to be a line break here so `c` command works
+    pipe=(sed "$sed_program")
+  else
+    pipe=(cat -)
+  fi
 
-  ( cd "$SYSTEMD_UNITS_PATH" && podman generate systemd \
-    --files --new --name --container-prefix="$SYSTEMD_PREFIX" "$fullname" >/dev/null )
+  output_file="$SHEEPOD_SYSTEMD_UNITS_PATH/$SHEEPOD_SYSTEMD_PREFIX-$fullname.service"
+  podman generate systemd "${generate_args[@]}" "$fullname" | "${pipe[@]}" > "$output_file"
+
   podman rm --volumes "$fullname" >/dev/null
 
   systemctl daemon-reload && systemctl enable --now "$systemd_name" 2>/dev/null
@@ -408,6 +498,12 @@ create-secret() {
   else
     podman secret create "$fullname" - >/dev/null 2>&1; status=$?
     if [ $status -ne 0 ]; then
+      # podman-secret-exists is only available on 4.5.0
+      if ! podman secret inspect "$fullname" >/dev/null 2>&1; then
+        echo "Failure to create secret: [$ns] $name"
+        return 1
+      fi
+
       echo "Secret exists: [$ns] $name"
     else
       echo "Secret created: [$ns] $name"
@@ -438,16 +534,18 @@ get-secret() {
   local ns=$1
   local name=$2
 
-  local secrets_path=/var/lib/containers/storage/secrets
   local fullname="${ns}-${name}"
-  local keyid; keyid=$(_jq "['nameToID']['$fullname']" ${secrets_path}/secrets.json); status=$?
+  local secrets_path; secrets_path="$(dirname \
+    "$(podman secret inspect -f "{{.Spec.Driver.Options.path}}" "$fullname")" \
+  )"
+  local keyid; keyid=$(_jq "['nameToID']['$fullname']" "${secrets_path}/secrets.json"); status=$?
 
   if [ $status -ne 0 ]; then
     echo "Secret '$fullname' not found!" >&2
     return 1
   fi
 
-  _jq "['$keyid']" ${secrets_path}/filedriver/secretsdata.json | base64 -d
+  _jq "['$keyid']" "${secrets_path}/filedriver/secretsdata.json" | base64 -d
 }
 
 _jq() {
@@ -477,6 +575,20 @@ require-secrets() {
   done
 }
 
+# Gets the corresponding host volume path for the %path% syntax sugar when creating containers.
+# The %path% syntax sugar will be replaced by a well-known path on the host based on the variable
+# $SHEEPOD_HOST_VOLUME_BASEPATH (typically /srv).
+#
+# For instance: the container named `database` on namespace `prd.onlyoffice` and a volume mapping to
+#               `%data%` is translated to `/srv/data/prd.onlyoffice/database`
+get-host-volume() {
+  local ns=$1; shift
+  local name=$1; shift
+  local volume=$1
+
+  echo "${SHEEPOD_HOST_VOLUME_BASEPATH}/${volume}/${ns}/${name}"
+}
+
 exec-on-container() {
   local ns=$1; shift
   local name=$1; shift
@@ -490,7 +602,8 @@ restart-container() {
   local name=$2
   local fullname="$ns-$name"
 
-  podman restart "$fullname"
+  podman restart "$fullname" >/dev/null
+  echo "Container restarted: [$ns] $name"
 }
 
 _main "$@"
