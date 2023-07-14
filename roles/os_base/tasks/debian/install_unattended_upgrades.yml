@@ -9,27 +9,33 @@
     src: files/automatic-upgrades.j2
     dest: /etc/apt/apt.conf.d/90automatic-upgrades
 
-- name: create folders for applying timer overrides
+- name: create folders for applying unit overrides
   become: true
   ansible.builtin.file:
-    path: /etc/systemd/system/{{ item }}.timer.d
+    path: /etc/systemd/system/{{ item }}.d
     state: directory
   loop:
-    - apt-daily
-    - apt-daily-upgrade
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - apt-daily-upgrade.service
 
-- name: override timers
+- name: override units
   become: true
   ansible.builtin.template:
-    src: files/{{ item }}.timer.j2
-    dest: /etc/systemd/system/{{ item }}.timer.d/override.conf
+    src: files/{{ item }}.j2
+    dest: /etc/systemd/system/{{ item }}.d/override.conf
   loop:
-    - apt-daily
-    - apt-daily-upgrade
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - apt-daily-upgrade.service
 
 - name: force reload the systemd daemon
   become: true
   ansible.builtin.systemd: daemon_reload=yes
+
+- name: disable unattended-upgrades-shutdown
+  become: true
+  ansible.builtin.systemd: name=unattended-upgrades.service enabled=no state=stopped
 
 - name: configure automatic updates
   become: true

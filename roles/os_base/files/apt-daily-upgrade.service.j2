@@ -1,0 +1,2 @@
+[Service]
+ExecStart=systemd-inhibit --who="apt.systemd.daily" --what="sleep:shutdown" --why="Installing automatic updates" /usr/lib/apt/apt.systemd.daily install
