@@ -62,21 +62,19 @@ _load-config() {
 _load-env-file() {
   local env_file=$1
 
-  declare -A existing
-
   # Load all existing variables in an associative array
   while IFS= read -r -d $'\0' var; do
     name="${var%%=*}"
-    existing[$name]=1
+    declare "existing_${name}"=1
   done < <(printenv -0)
 
-  while IFS= read -r -d $'\0' var; do
+  while IFS= read -rd $'\0' var; do
     # We don't override the environment variables already set
-    name="${var%%=*}"
-    test -n "${existing[$name]}" && continue
+    local varname="existing_${var%%=*}"
+    test -n "${!varname}" && continue
 
     # Then parse each value and export them individually
-    value="${var##*=}"
+    local value="${var##*=}"
     value="${value//\"/\\\"}"
     eval "export $name=\"$value\""
   done < <(env -i bash -c "set -a; source \"$env_file\"; printenv -0")
