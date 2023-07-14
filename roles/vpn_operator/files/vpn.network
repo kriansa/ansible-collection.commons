@@ -33,3 +33,12 @@ Table=200
 [Route]
 Destination={{ vpn_gateway }}/32
 Gateway={{ vpn_ip }}
+
+{% if vpn_extra_routes %}
+# Extra CIDR routed through the VPN
+{% for cidr in vpn_extra_routes %}
+[Route]
+Destination={{ cidr }}/32
+Gateway={{ vpn_ip }}
+{% endfor %}
+{% endif %}

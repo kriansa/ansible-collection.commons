@@ -37,5 +37,12 @@ routing-rule1=priority 32765 from {{ vpn_ip }}/32 table 200
 # Allow connecting to the gateway directly
 route2={{ vpn_gateway }}/32,{{ vpn_ip }}/32
 
+{% if vpn_extra_routes %}
+# Extra CIDR routed through the VPN
+{% for cidr in vpn_extra_routes %}
+route{{ loop.index + 2 }}={{ cidr }},{{ vpn_ip }}/32
+{% endfor %}
+{% endif %}
+
 [ipv6]
 method=ignore

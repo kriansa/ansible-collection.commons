@@ -1,7 +1,6 @@
 [Unit]
 Description=Wireguard endpoint domain automatic re-resolver
-Requires=vpn.device
-After=vpn.device
+After=sys-subsystem-net-devices-vpn.device
 
 [Service]
 ExecStart=/usr/local/bin/wg-reresolve-dns
