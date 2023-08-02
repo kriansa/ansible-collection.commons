@@ -7,6 +7,13 @@
   become: true
   ansible.builtin.dnf: name=dnf-automatic state=latest
 
+- name: ensure dnf-automatic only install security updates
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/automatic.conf
+    line: upgrade_type = security
+    regexp: "^upgrade_type ="
+
 - name: create folders for applying timer overrides
   become: true
   ansible.builtin.file:
