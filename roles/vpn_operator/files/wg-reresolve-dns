@@ -100,10 +100,10 @@ class CLI:
 
 
 class WireguardConnection:
-    """Makes actions against wireguard using the `wg` CLI. Requires root access. """
+    """Makes actions against wireguard using the `wg` CLI. Requires root access."""
 
     @staticmethod
-    def reapply_endpoints(known_peers: 'WireguardPeerConfig'):
+    def reapply_endpoints(known_peers: "WireguardPeerConfig"):
         if len(known_peers) == 0:
             raise RuntimeError("No wireguard peers found in the provided configuration!")
 
@@ -140,10 +140,19 @@ class WireguardConnection:
         delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(int(latest_ts))
 
         # The minimum acceptable DNS TTL is 1min, which means that it's the highest possible polling
-        # we could do and anything lower than that would be a waste of resources
+        # we could do and anything lower than that would be useless
         if delta.total_seconds() >= 60:
-            subprocess.run(["wg", "set", interface, "peer", peer, "endpoint", endpoint], check=True)
-            logger.debug("Re-resolved interface '%s' endpoint", interface)
+            try:
+                subprocess.run(
+                    ["wg", "set", interface, "peer", peer, "endpoint", endpoint],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+                logger.debug("Re-resolved interface '%s' endpoint", interface)
+            except subprocess.CalledProcessError as error:
+                output = error.output.decode("utf-8").strip() if error.output else None
+                logger.warning("Failure to resolve name for interface '%s': %s", interface, output)
 
 
 class WireguardPeerConfig:
@@ -172,7 +181,7 @@ class WireguardPeerConfig:
         disable_wgconf: bool,
         disable_networkmanager: bool,
         disable_systemdnetworkd: bool,
-    ) -> 'WireguardPeerConfig':
+    ) -> "WireguardPeerConfig":
         """
         Loads up all known configured peers based on Wireguard config or NetworkManager Wireguard
         connections.
@@ -180,8 +189,9 @@ class WireguardPeerConfig:
         known_peers = {}
         if not disable_wgconf:
             for conf_file in pathlib.Path(wg_conf_path).rglob("*.conf"):
-                peers = WireguardPeerConfig \
-                    .extract_from_nonstandard_ini_file(conf_file, section="Peer")
+                peers = WireguardPeerConfig.extract_from_nonstandard_ini_file(
+                    conf_file, section="Peer"
+                )
                 known_peers = known_peers | peers
 
         if not disable_networkmanager:
@@ -192,13 +202,15 @@ class WireguardPeerConfig:
         if not disable_systemdnetworkd:
             for conf_path in sn_conf_path:
                 for conf_file in pathlib.Path(conf_path).rglob("*.netdev"):
-                    peers = WireguardPeerConfig \
-                        .extract_from_nonstandard_ini_file(conf_file, section="WireGuardPeer")
+                    peers = WireguardPeerConfig.extract_from_nonstandard_ini_file(
+                        conf_file, section="WireGuardPeer"
+                    )
                     known_peers = known_peers | peers
 
                 for conf_file in pathlib.Path(conf_path).rglob("*.netdev.d/*.conf"):
-                    peers = WireguardPeerConfig \
-                        .extract_from_nonstandard_ini_file(conf_file, section="WireGuardPeer")
+                    peers = WireguardPeerConfig.extract_from_nonstandard_ini_file(
+                        conf_file, section="WireGuardPeer"
+                    )
                     known_peers = known_peers | peers
 
         return WireguardPeerConfig(known_peers)
