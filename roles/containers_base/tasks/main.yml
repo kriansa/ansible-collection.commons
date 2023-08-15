@@ -4,14 +4,14 @@
   ansible.builtin.copy:
     src: bin/
     mode: "0755"
-    dest: /usr/bin/
+    dest: /usr/local/bin/
 
 - name: add additional system libs
   become: true
   ansible.builtin.copy:
     src: lib/
     mode: "0644"
-    dest: /usr/lib/
+    dest: /usr/local/lib/
 
 - name: create conventional server folders on /srv
   become: true
