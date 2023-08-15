@@ -1,0 +1,153 @@
+# Sheepod CLI
+#
+# Usage: Source this file at the bottom of your deploy script. Ensure your script contains:
+# - A `cli:options` function that sets `CLI_NAME`, `OPTIONS_CMD`, `OPTIONS_VARS` and `OPTIONS_DESC`
+# - A `deploy:<component>` function for each component you want to be able to deploy
+
+cli:main() {
+	if ! cli:options; then
+	  echo "You must declare cli:options in your deploy script!"
+	  exit 1
+	fi
+
+	declare -A AVAILABLE_COMPONENTS OPTIONS_HASH_BY_CMD OPTIONS_HASH_BY_VAR
+	cli:_set-dynamic-vars
+
+	declare ARGS=()
+	cli:_parse-cli "$@"
+
+  if [ "${#ARGS[@]}" -eq 0 ]; then
+    echo "You must pass a component name to deploy!"
+    echo
+    cli:help
+    exit 1
+  fi
+
+  local failed=no
+  for component in "${ARGS[@]}"; do
+  	if ! [ "${AVAILABLE_COMPONENTS[$component]}" = "yes" ]; then
+			failed=yes
+			echo "Component '$component' not available!"
+  	fi
+  done
+
+	if [ $failed = "yes" ]; then
+		echo "Use --help for usage."
+		return 1
+	fi
+
+	# shellcheck disable=SC1091
+	source /usr/lib/libsheepod.sh
+	config-load "/etc/sheepod/env"
+
+	for component in "${ARGS[@]}"; do
+		echo "Deploying: $component"
+		deploy:"$component"
+	done
+}
+
+cli:_set-dynamic-vars() {
+	local component
+  while IFS= read -r component; do
+  	[[ "$component" =~ ^deploy: ]] || continue
+  	component=${component#*:}
+  	AVAILABLE_COMPONENTS["$component"]=yes
+  done < <(compgen -A function)
+
+	for i in "${!OPTIONS_CMD[@]}"; do
+		OPTIONS_HASH_BY_CMD["${OPTIONS_CMD[$i]}"]="${OPTIONS_VARS[$i]}"
+		OPTIONS_HASH_BY_VAR["${OPTIONS_VARS[$i]}"]="${OPTIONS_CMD[$i]}"
+	done
+}
+
+cli:_parse-opt() {
+	local option="${1%=*}" value="${1#*=}"
+	if [[ -n ${OPTIONS_HASH_BY_CMD["$option"]} ]]; then
+		declare -g "${OPTIONS_HASH_BY_CMD["$option"]}"="$value"
+	else
+		echo "Unknown option: $option"
+		exit 1
+	fi
+}
+
+cli:_parse-cli() {
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --help|-h)
+        cli:help
+        exit
+        ;;
+
+      --*=*)
+        cli:_parse-opt "$1"
+        shift
+        ;;
+
+      --*)
+        test -z "${2:-}" && echo "No value for $1" && exit 1
+        cli:_parse-opt "$1=$2"
+        shift; shift
+        ;;
+
+      -*)
+        echo "Unknown option: $1"
+        exit 1
+        ;;
+      *)
+        ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+}
+
+cli:help() {
+	local usage_options=()
+	for i in "${!OPTIONS_VARS[@]}"; do
+		usage_options+=("${OPTIONS_CMD[$i]} <${OPTIONS_VARS[$i]}>")
+	done
+
+	echo "Usage: ${CLI_NAME:-$0} <COMPONENT> <...COMPONENT> [OPTIONS] "
+	echo
+	echo "Deploy a single component. Each component has different requirements."
+	echo
+	echo "Components:"
+	for component in "${!AVAILABLE_COMPONENTS[@]}"; do
+		echo "  - $component"
+	done
+	echo
+	echo "Options:"
+	printf "  %-25s%s\n" "--help" "Show this message"
+	for i in "${!OPTIONS_CMD[@]}"; do
+		printf "  %-25s%s\n" "${OPTIONS_CMD[$i]}" "${OPTIONS_DESC[$i]}"
+	done
+}
+
+require-args() {
+	local args=("$@") failed=no
+	for arg in "${args[@]}"; do
+		if test -z "${!arg}"; then
+			echo "The option ${OPTIONS_HASH_BY_VAR[$arg]} is required!" >&2
+			failed=yes
+		fi
+	done
+
+	if [ $failed = "yes" ]; then
+		echo "Use --help for usage."
+		exit 1
+	fi
+}
+
+require-envs() {
+	local envs=("$@") failed=no
+	for env in "${envs[@]}"; do
+		if test -z "${!env}"; then
+			echo "The environment variable '$env' is required!" >&2
+			failed=yes
+		fi
+	done
+
+	[ $failed = "yes" ] && exit 1
+}
+
+cli:main "$@"
