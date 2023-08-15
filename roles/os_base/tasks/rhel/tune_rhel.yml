@@ -11,6 +11,15 @@
   become: true
   ansible.builtin.dnf: name=rsyslog state=absent
 
+- name: add /usr/local/bin to PATH for root users
+  become: true
+  ansible.builtin.copy:
+    path: /etc/profile.d/root-local-bin.sh
+    content: |
+      # Adds /usr/local/bin to $PATH for root
+      [ -z "$EUID" ] && [ -x /usr/bin/id ] && EUID=$(/usr/bin/id -u)
+      [ "$EUID" = "0" ] && PATH=${PATH/\/usr\/local\/sbin:/\/usr\/local\/sbin:\/usr\/local\/bin:}
+
 - name: remove old logs
   become: true
   ansible.builtin.file:
