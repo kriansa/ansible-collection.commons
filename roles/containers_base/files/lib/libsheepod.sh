@@ -555,7 +555,8 @@ create-network() {
   echo "Network created: $network"
 }
 
-# v1:urlencode() {
+# (TODO: where to put all this?)
+# urlencode() {
 #   local LC_ALL=C
 #   local string="${*:-$(cat -)}"
 #   local length="${#string}"
@@ -572,10 +573,14 @@ create-network() {
 #   printf '\n'
 # }
 #
-# v1:urldecode() {
+# urldecode() {
 #   local input="${*:-$(cat -)}"
 #   local encoded="${input//+/ }"
 #   printf '%b\n' "${encoded//%/\\x}"
+# }
+#
+# trim() {
+#   xargs
 # }
 
 create-secret() {
@@ -584,7 +589,7 @@ create-secret() {
   local options=("$@")
 
   local fullname="$ns-$name"
-  local RANDOM=no UPDATE=no
+  local RANDOM=no UPDATE=no TRIM=no
 
   if [ "${#options[@]}" -gt 0 ]; then
     local option
@@ -592,6 +597,7 @@ create-secret() {
       case "$option" in
         --random) RANDOM=yes ;;
         --update) UPDATE=yes ;;
+        --trim) TRIM=yes ;;
         *) echo "Option not recognized: $option" >&2 && return 1 ;;
       esac
     done
@@ -601,10 +607,14 @@ create-secret() {
   if [ "$RANDOM" = "yes" ]; then
     passwd="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 16 | head -n 1 || true)"
   else
-    passwd="$(cat /dev/stdin)"
+    IFS='' read -d '' -r passwd
   fi
 
-  echo -n "$passwd" | podman secret create "$fullname" - &>/dev/null; status=$?
+  if [ "$TRIM" = "yes" ]; then
+    passwd="$(printf "%s" "$passwd" | sed -z '$ s/[[:space:]]*$//')"
+  fi
+
+  printf "%s" "$passwd" | podman secret create "$fullname" - &>/dev/null; status=$?
 
   if [ $status -ne 0 ]; then
     # podman-secret-exists is only available on 4.5.0
@@ -615,7 +625,8 @@ create-secret() {
 
     if [ "$UPDATE" = "yes" ]; then
       podman secret rm "$fullname" >/dev/null
-      echo -n "$passwd" | create-secret "$ns" "$name" "${options[@]}"
+      printf "%s" "$passwd" | podman secret create "$fullname" - &>/dev/null
+      echo "Secret updated: [$ns] $name"
     else
       echo "Secret exists: [$ns] $name"
     fi
