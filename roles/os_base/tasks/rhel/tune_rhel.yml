@@ -14,7 +14,7 @@
 - name: add /usr/local/bin to PATH for root users
   become: true
   ansible.builtin.copy:
-    path: /etc/profile.d/root-local-bin.sh
+    dest: /etc/profile.d/root-local-bin.sh
     content: |
       # Adds /usr/local/bin to $PATH for root
       [ -z "$EUID" ] && [ -x /usr/bin/id ] && EUID=$(/usr/bin/id -u)
