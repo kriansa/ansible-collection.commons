@@ -1,0 +1,10 @@
+---
+- name: adds a timeout so uuidd can shutdown after not being used
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/uuidd.service.d/override.conf
+    content: |
+      # Adds a sane timeout so that uuidd can shutdown after being activated by a socket
+      [Service]
+      ExecStart=
+      ExecStart=/usr/sbin/uuidd --socket-activation --timeout 60

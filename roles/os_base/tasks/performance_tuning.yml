@@ -9,6 +9,30 @@
       ACTION=="add", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="Amazon Elastic Block Store", ATTR{queue/io_timeout}="4294967295"
       ACTION=="add", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="Amazon EC2 NVMe Instance Storage", ATTR{queue/io_timeout}="30000"
 
+# See: https://github.com/pop-os/default-settings/pull/149
+# See: https://www.phoronix.com/forums/forum/software/general-linux-open-source/1334042-linux-5-19-looking-real-good-on-the-hp-dev-one-xanmod-liquorix-also-tested
+- name: use kyber as the default scheduler for nvme/ssds
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/60-nvme-scheduler.rules
+    content: |
+      # BFQ is recommended for slow storage such as rotational block devices and SD cards.
+      ACTION=="add|change", SUBSYSTEM=="block", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+      ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="mmcblk?", ATTR{queue/scheduler}="bfq"
+
+      # Kyber is recommended for faster storage such as NVME and SATA SSDs.
+      ACTION=="add|change", SUBSYSTEM=="block", ATTR{queue/rotational}=="0", KERNEL=="nvme?n?", ATTR{queue/scheduler}="kyber"
+      ACTION=="add|change", SUBSYSTEM=="block", ATTR{queue/rotational}=="0", KERNEL=="sd?", ATTR{queue/scheduler}="kyber"
+
+- name: enable MLGRU for kernels >= 6.1
+  become: true
+  when: ansible_kernel is version('6.1', operator='>=', strict=True)
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/mglru.conf
+    content: |
+      w /sys/kernel/mm/lru_gen/enabled - - - - 7
+      w /sys/kernel/mm/lru_gen/min_ttl_ms - - - - 0
+
 - name: enable automatic fstrim
   become: true
   ansible.builtin.systemd: name=fstrim.timer enabled=yes
