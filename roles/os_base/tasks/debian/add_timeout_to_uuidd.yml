@@ -1,4 +1,10 @@
 ---
+- name: create folder /etc/systemd/system/uuidd.service.d
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/system/uuidd.service.d
+    state: directory
+
 - name: adds a timeout so uuidd can shutdown after not being used
   become: true
   ansible.builtin.copy:
