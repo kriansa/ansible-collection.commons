@@ -125,6 +125,9 @@ class WireguardConnection:
 
         peers_dict = {}
         for peer in peers.stdout.decode("utf-8").strip().split("\n"):
+            if "\t" not in peer:
+                continue
+
             key, value = peer.split("\t", 1)
             peers_dict[key] = value
 
