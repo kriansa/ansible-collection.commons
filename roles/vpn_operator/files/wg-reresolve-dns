@@ -7,6 +7,7 @@ import subprocess
 import pathlib
 import datetime
 import argparse
+import textwrap
 import time
 import configparser
 
@@ -19,17 +20,19 @@ class CLI:
     @staticmethod
     def main():
         """
-        wg-reresolve-dns will loop through every connected wireguard interface and reapply its
-        endpoint configuration to ensure that any domain gets re-resolved by your DNS server.
+        Loops through every connected WireGuard interface and reapply its endpoint configuration to
+        ensure that any domain gets re-resolved by your DNS server.
 
-        By default, it looks for original configuration on wireguard configuration files,
-        NetworkManager and systemd-networkd configured connections.
+        By default, it looks for the original configuration on any of these files:
+          - WireGuard configuration files (located at `/etc/wireguard`)
+          - NetworkManager system connections (located at `/etc/NetworkManager/system-connections`)
+          - systemd-networkd configured connections (located at `/{lib,etc,run}/systemd/network`)
 
-        You can disable either one if you don't need them all.
+        You can disable each one if you don't need them all.
         """
         parser = argparse.ArgumentParser(
             prog="wg-reresolve-dns",
-            description=CLI.main.__doc__,
+            description=textwrap.dedent(CLI.main.__doc__),
             formatter_class=argparse.RawTextHelpFormatter,
         )
         parser.add_argument(
