@@ -129,6 +129,13 @@ rm-container() {
   systemctl disable --now "$systemd_name" 2> /dev/null || true
   podman rm --force --ignore --volumes "$fullname"
   rm -f "${SHEEPOD_SYSTEMD_UNITS_PATH}/${SHEEPOD_SYSTEMD_PREFIX}-${fullname}.service"
+
+  # Also remove its timer counterpart
+  if [ -f "${SHEEPOD_SYSTEMD_UNITS_PATH}/${SHEEPOD_SYSTEMD_PREFIX}-${fullname}.timer" ]; then
+    systemctl disable --now "$systemd_name.timer" 2> /dev/null || true
+    rm -f "${SHEEPOD_SYSTEMD_UNITS_PATH}/${SHEEPOD_SYSTEMD_PREFIX}-${fullname}.timer"
+  fi
+
   systemctl daemon-reload
 }
 
@@ -238,6 +245,7 @@ create-container() {
   local health_cmd="" health_interval="30s" health_timeout="1s" health_retries="3"
   local health_start_period="0s" health_on_failure="kill"
   local user="" env_file="" systemd_restart_policy="" secrets=() volumes=()
+  local enabled=1
   local options=() args=()
   local _parse_args=0
   while [ $# -gt 0 ]; do
@@ -362,6 +370,12 @@ create-container() {
         shift; shift
         ;;
 
+      # Custom option, so that we don't automatically initialize the container
+      --disabled)
+        enabled=0
+        shift
+        ;;
+
       --)
         _parse_args=1
         shift
@@ -463,9 +477,9 @@ create-container() {
         volume="${host_volume}:${volume#*:}"
       fi
 
-      # It's only considered a host volume if it starts with a slash (absolute path), otherwise
+      # It's only considered a host volume if it starts with a slash or dot (paths), otherwise
       # that's a named volume and we don't touch them in that case
-      if [[ "$host_volume" =~ ^/ ]]; then
+      if [[ "$host_volume" =~ ^[/.] ]]; then
         # When the mounted volume doesn't exist, we attempt to create a folder. If the intention is
         # for it to be a file, then it must exist beforehand.
         if [ ! -e "$host_volume" ]; then
@@ -529,8 +543,37 @@ create-container() {
 
   podman rm --volumes "$fullname" >/dev/null
 
-  systemctl daemon-reload && systemctl enable --now "$systemd_name" 2>/dev/null
+  systemctl daemon-reload
+  test $enabled -eq 1 && systemctl enable --now "$systemd_name" 2>/dev/null
   echo "Container created: [$namespace] $name (systemd: $systemd_name)"
+}
+
+# TODO: Create run-container, which just runs a one-off container and doesn't create a systemd unit
+
+schedule-container() {
+  local ns=$1
+  local name=$2
+  local schedule=$3
+  local random_delay=${4:-120}
+
+  local fullname="$ns-$name"
+  local systemd_name="${SHEEPOD_SYSTEMD_PREFIX}-${fullname}.timer"
+
+  cat <<EOF > "$SHEEPOD_SYSTEMD_UNITS_PATH/$systemd_name"
+[Unit]
+Description=Scheduler for container [$ns] $name
+
+[Timer]
+RandomizedDelaySec=$random_delay
+OnCalendar=$schedule
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload && systemctl enable --now "$systemd_name" 2>/dev/null
+  echo "Container scheduled: [$ns] $name (systemd: $systemd_name)"
 }
 
 registry-auth() {
