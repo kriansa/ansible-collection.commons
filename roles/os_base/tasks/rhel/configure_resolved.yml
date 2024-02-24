@@ -1,0 +1,37 @@
+---
+- name: configure NetworkManager to use systemd-resolved
+  become: true
+  notify: restart NetworkManager
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/10-dns.conf
+    content: |
+      [main]
+      dns=systemd-resolved
+
+- name: setup links for /etc/resolv.conf
+  become: true
+  notify: restart systemd-resolved
+  ansible.builtin.file:
+    src: /run/systemd/resolve/stub-resolv.conf
+    dest: /etc/resolv.conf
+    force: yes
+    state: link
+
+- name: create directory for systemd-resolved drop-ins
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+
+- name: setup fallback DNS servers
+  become: true
+  notify: restart systemd-resolved
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/10-fallback-dns.conf
+    content: |
+      [Resolve]
+      FallbackDNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google 8.8.4.4#dns.google 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com 2001:4860:4860::8888#dns.google 2001:4860:4860::8844#dns.google
+
+- name: enable systemd-resolved service
+  become: true
+  ansible.builtin.systemd: name=systemd-resolved state=started enabled=yes

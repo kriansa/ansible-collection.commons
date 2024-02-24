@@ -40,6 +40,10 @@
   become: true
   ansible.builtin.systemd: name=NetworkManager state=restarted
 
+- name: restart systemd-networkd
+  become: true
+  ansible.builtin.systemd: name=systemd-networkd state=restarted
+
 - name: restart cpupower
   become: true
   ansible.builtin.systemd: name=cpupower enabled=yes state=restarted

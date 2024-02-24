@@ -3,3 +3,4 @@
 - import_tasks: install_dnf_automatic.yml
 - import_tasks: install_packages_rhel.yml
 - import_tasks: tune_rhel.yml
+- import_tasks: configure_resolved.yml
