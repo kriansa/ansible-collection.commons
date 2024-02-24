@@ -245,7 +245,7 @@ create-container() {
   local health_cmd="" health_interval="30s" health_timeout="1s" health_retries="3"
   local health_start_period="0s" health_on_failure="kill"
   local user="" env_file="" systemd_restart_policy="" secrets=() volumes=()
-  local enabled=1
+  local enabled=1 run_once=0
   local options=() args=()
   local _parse_args=0
   while [ $# -gt 0 ]; do
@@ -373,6 +373,12 @@ create-container() {
       # Custom option, so that we don't automatically initialize the container
       --disabled)
         enabled=0
+        shift
+        ;;
+
+      # Don't create a service for the container
+      --run-once)
+        run_once=1
         shift
         ;;
 
@@ -527,6 +533,14 @@ create-container() {
   options+=(--network "$namespace")
   create-network "$namespace" >/dev/null || return 1
 
+  if [ $run_once -eq 1 ]; then
+    echo "Running container: [$namespace] $name"
+    ts=$(date +%s)
+    podman run --rm --name "$fullname-$ts" "${options[@]}" "${args[@]}" || return 1
+    podman network prune --force >/dev/null
+    return
+  fi
+
   podman create --name "$fullname" "${options[@]}" "${args[@]}" >/dev/null || return 1
 
   local generate_args=(--new --name --container-prefix="$SHEEPOD_SYSTEMD_PREFIX")
@@ -548,7 +562,12 @@ create-container() {
   echo "Container created: [$namespace] $name (systemd: $systemd_name)"
 }
 
-# TODO: Create run-container, which just runs a one-off container and doesn't create a systemd unit
+run-container() {
+  local namespace=$1; shift
+  local name=$1; shift
+
+  create-container "$namespace" "$name" --run-once "$@"
+}
 
 schedule-container() {
   local ns=$1
