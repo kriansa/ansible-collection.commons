@@ -38,7 +38,7 @@ Gateway={{ vpn_ip }}
 # Extra CIDR routed through the VPN
 {% for cidr in vpn_extra_routes %}
 [Route]
-Destination={{ cidr }}/32
-Gateway={{ vpn_ip }}
+Destination={{ cidr }}
+Gateway={{ vpn_ip }}/32
 {% endfor %}
 {% endif %}
