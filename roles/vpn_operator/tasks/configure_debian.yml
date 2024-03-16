@@ -18,7 +18,7 @@
 
 - name: restart systemd-networkd to activate vpn
   become: true
-  ansible.builtin.systemd: name=systemd-networkd state=restarted unmask=yes
+  ansible.builtin.systemd: name=systemd-networkd state=restarted masked=no
 
 - name: create ssh service drop-in directory
   become: true
