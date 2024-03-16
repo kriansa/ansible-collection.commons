@@ -16,9 +16,13 @@
     - vpn.netdev
     - vpn.network
 
+- name: unmask systemd-networkd in case it's been masked
+  become: true
+  ansible.builtin.systemd: name=systemd-networkd masked=no
+
 - name: restart systemd-networkd to activate vpn
   become: true
-  ansible.builtin.systemd: name=systemd-networkd state=restarted masked=no
+  ansible.builtin.systemd: name=systemd-networkd state=restarted
 
 - name: create ssh service drop-in directory
   become: true
