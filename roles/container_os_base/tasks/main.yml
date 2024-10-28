@@ -1,0 +1,3 @@
+---
+- import_tasks: tasks/reset_almalinux.yml
+  when: ansible_facts['distribution'] == 'AlmaLinux'
