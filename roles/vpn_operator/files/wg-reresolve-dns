@@ -192,7 +192,7 @@ class WireguardPeerConfig:
         Loads up all known configured peers based on Wireguard config or NetworkManager Wireguard
         connections.
         """
-        known_peers = {}
+        known_peers: dict[str, str] = {}
         if not disable_wgconf:
             for conf_file in pathlib.Path(wg_conf_path).rglob("*.conf"):
                 peers = WireguardPeerConfig.extract_from_nonstandard_ini_file(
@@ -247,7 +247,7 @@ class WireguardPeerConfig:
         """Parse a wireguard pk->endpoint pair from a nonstandard ini file such as wireguard.conf"""
 
         peers = {}
-        current_peer = {}
+        current_peer: dict[str, str] = {}
 
         def add_peer(peer):
             if "Endpoint" in peer and "PublicKey" in peer:
