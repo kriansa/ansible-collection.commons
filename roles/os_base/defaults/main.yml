@@ -2,6 +2,9 @@
 # Sets the hostname of this server
 hostname: myserver
 
+# Define the default timezone
+timezone: UTC
+
 # Admin user name. By default, we disable root user and turn this one into an admin which can get
 # super user access by using `sudo`
 username: admin
@@ -30,7 +33,7 @@ reboot_if_needed: yes
 
 # Automatic updates (timezones available at `timedatectl list-timezones`)
 automatic_update_enabled: yes
-automatic_update_download_time: 02:00 UTC
-automatic_update_start_time: 02:30 UTC
+automatic_update_download_time: 05:00 UTC
+automatic_update_start_time: 05:30 UTC
 automatic_update_reboot: yes
-automatic_update_reboot_time: 03:00 UTC
+automatic_update_reboot_time: 06:00 UTC

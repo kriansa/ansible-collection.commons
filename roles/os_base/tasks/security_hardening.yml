@@ -41,3 +41,79 @@
   ansible.builtin.user:
     name: root
     password_lock: yes
+
+# Hardens kernel tunables
+# See: https://github.com/Kicksecure/security-misc
+# See: https://madaidans-insecurities.github.io/guides/linux-hardening.html
+# See: https://tails.net/contribute/design/kernel_hardening/
+# See: https://kernsec.org/wiki/index.php/Kernel_Self_Protection_Project/Recommended_Settings
+- name: harden sysctl variables
+  become: true
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    sysctl_file: /etc/sysctl.d/80-hardened-settings.conf
+  loop:
+      ## Hides kernel addresses in various files in /proc.
+      ## Kernel addresses can be very useful in certain exploits.
+      ##
+      ## https://kernsec.org/wiki/index.php/Bug_Classes/Kernel_pointer_leak
+    - { name: kernel.kptr_restrict, value: "1" }
+
+    # Panics whenever an oops or BUG is encountered.
+    - { name: kernel.panic_on_oops, value: "1" }
+
+      # Hardens the BPF JIT compiler and restricts it to root.
+    - { name: net.core.bpf_jit_harden, value: "2" }
+    - { name: kernel.unprivileged_bpf_disabled, value: "1" }
+
+      # Randomize the addresses for mmap base, heap, stack, and VDSO pages
+    - { name: kernel.randomize_va_space, value: "2" }
+
+      ## Restrict loading TTY line disciplines to CAP_SYS_MODULE to prevent
+      ## unprivileged attackers from loading vulnerable line disciplines
+      ## with the TIOCSETD ioctl which has been used in exploits before
+      ## such as https://a13xp0p0v.github.io/2017/03/24/CVE-2017-2636.html
+      ##
+      ## https://lkml.org/lkml/2019/4/15/890
+    - { name: dev.tty.ldisc_autoload, value: "0" }
+
+      ## Restrict the userfaultfd() syscall to root as it can make heap sprays
+      ## easier.
+      ##
+      ## https://duasynt.com/blog/linux-kernel-heap-spray
+    - { name: vm.unprivileged_userfaultfd, value: "0" }
+
+      ## Disallow kernel profiling by users without CAP_SYS_ADMIN
+      ## https://www.kernel.org/doc/Documentation/sysctl/kernel.txt
+    - { name: kernel.perf_event_paranoid, value: "3" }
+
+      # kexec is a system call that is used to boot another kernel during runtime. This functionality
+      # can be abused to load a malicious kernel and gain arbitrary code execution in kernel mode, so
+      # this sysctl disables it.
+    - { name: kernel.kexec_load_disabled, value: "1" }
+
+      ## Disable SysRq key
+    - { name: kernel.sysrq, value: "0" }
+
+      ## Restricts the kernel log to root only.
+    - { name: kernel.dmesg_restrict, value: "1" }
+
+      ## Don't allow writes to files that we don't own
+      ## in world writable sticky directories, unless
+      ## they are owned by the owner of the directory.
+    - { name: fs.protected_fifos, value: "2" }
+    - { name: fs.protected_regular, value: "2" }
+
+      ## Only allow symlinks to be followed when outside of
+      ## a world-writable sticky directory, or when the owner
+      ## of the symlink and follower match, or when the directory
+      ## owner matches the symlink's owner.
+      ##
+      ## Prevent hardlinks from being created by users that do not
+      ## have read/write access to the source file.
+      ##
+      ## These prevent many TOCTOU races.
+    - { name: fs.protected_symlinks, value: "1" }
+    - { name: fs.protected_hardlinks, value: "1" }

@@ -2,7 +2,12 @@
 - name: remove cloud-init (with dnf)
   become: true
   when: ansible_facts['os_family'] == 'RedHat'
-  ansible.builtin.dnf: name=cloud-init state=absent autoremove=true
+  ansible.builtin.dnf:
+    state: absent
+    autoremove: true
+    name:
+      - cloud-init
+      - cloud-utils-growpart
 
 - name: remove cloud-init (with apt)
   become: true

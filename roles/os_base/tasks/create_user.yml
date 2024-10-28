@@ -1,4 +1,14 @@
 ---
+- name: set hostname
+  become: true
+  ansible.builtin.hostname:
+    name: "{{ hostname }}"
+
+- name: set timezone
+  become: true
+  community.general.timezone:
+    name: "{{ timezone }}"
+
 - name: create wheel group
   become: true
   ansible.builtin.group:

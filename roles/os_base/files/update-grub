@@ -10,9 +10,7 @@ elif command -v grub2-mkconfig; then
   files=(/etc/grub2.conf /etc/grub2.cfg /etc/grub2-efi.cfg)
 
   for file in "${files[@]}"; do
-    test -f "$file" || continue
-    # shellcheck disable=SC2093
-    exec grub2-mkconfig -o "$file"
+    test -f "$file" && exec grub2-mkconfig -o "$file"
   done
 
   echo "No grub configuration was found. Please check where it is located and change update-grub file" >&2

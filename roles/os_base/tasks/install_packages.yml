@@ -20,3 +20,18 @@
   become: true
   when: ansible_facts.chassis_vendor == "QEMU"
   ansible.builtin.systemd: name=qemu-guest-agent enabled=yes
+
+- name: check for ecc memory
+  become: true
+  ansible.builtin.shell: dmidecode -t memory | grep -q "Error Correction Type.* ECC"
+  register: ecc_memory_status
+  ignore_errors: yes
+
+- when: ecc_memory_status.rc == 0
+  become: true
+  block:
+    - name: install ecc memory logger
+      ansible.builtin.package: name=rasdaemon
+
+    - name: enable rasdaemon service (ecc memory daemon)
+      ansible.builtin.systemd: name=rasdaemon state=started enabled=yes

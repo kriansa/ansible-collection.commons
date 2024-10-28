@@ -4,3 +4,4 @@
 - import_tasks: install_packages_rhel.yml
 - import_tasks: tune_rhel.yml
 - import_tasks: configure_resolved.yml
+- import_tasks: kernel_hardening.yml

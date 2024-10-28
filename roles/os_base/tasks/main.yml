@@ -19,9 +19,8 @@
   include_tasks: amazon/main.yml
 
 # Generic linux packages
-- import_tasks: set_hostname.yml
-- import_tasks: install_packages.yml
 - import_tasks: create_user.yml
+- import_tasks: install_packages.yml
 - import_tasks: configure_journal.yml
 - import_tasks: grub_tuning.yml
 - import_tasks: security_hardening.yml
