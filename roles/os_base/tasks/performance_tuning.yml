@@ -11,7 +11,7 @@
 
 # See: https://github.com/pop-os/default-settings/pull/149
 # See: https://www.phoronix.com/forums/forum/software/general-linux-open-source/1334042-linux-5-19-looking-real-good-on-the-hp-dev-one-xanmod-liquorix-also-tested
-- name: use kyber as the default scheduler for nvme/ssds
+- name: use optimized disk schedulers
   become: true
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/61-disk-scheduler.rules

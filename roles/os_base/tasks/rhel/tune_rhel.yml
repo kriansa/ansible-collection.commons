@@ -135,6 +135,7 @@
       loop:
         - /etc/udev/rules.d/80-net-setup-link.rules
 
+    # This is no longer required for RHEL 10 as net.ifnames was removed from cmdline
     - ansible.builtin.command: grep -q "net.ifnames" /proc/cmdline
       ignore_errors: true
       register: has_ifnames

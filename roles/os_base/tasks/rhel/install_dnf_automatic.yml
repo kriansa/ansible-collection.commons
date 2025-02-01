@@ -3,57 +3,53 @@
   become: true
   ansible.builtin.systemd: name=dnf-makecache.timer enabled=no
 
-- name: install dnf-automatic
+- name: enable automatic updates
   become: true
-  ansible.builtin.dnf: name=dnf-automatic state=latest
+  when: automatic_update_enabled
+  block:
+    - name: install dnf-automatic
+      ansible.builtin.dnf: name=dnf-automatic state=latest
 
-- name: ensure dnf-automatic only install security updates
-  become: true
-  ansible.builtin.lineinfile:
-    path: /etc/dnf/automatic.conf
-    line: upgrade_type = security
-    regexp: "^upgrade_type ="
+    - name: ensure dnf-automatic only install security updates
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/automatic.conf
+        line: upgrade_type = security
+        regexp: "^upgrade_type ="
 
-- name: create folders for applying timer overrides
-  become: true
-  ansible.builtin.file:
-    path: /etc/systemd/system/{{ item }}.timer.d
-    state: directory
-  loop:
-    - dnf-automatic-download
-    - dnf-automatic-install
+    - name: create folders for applying timer overrides
+      ansible.builtin.file:
+        path: /etc/systemd/system/{{ item }}.timer.d
+        state: directory
+      loop:
+        - dnf-automatic-download
+        - dnf-automatic-install
 
-- name: override dnf timers
-  become: true
-  ansible.builtin.template:
-    src: files/{{ item }}.timer.j2
-    dest: /etc/systemd/system/{{ item }}.timer.d/override.conf
-  loop:
-    - dnf-automatic-download
-    - dnf-automatic-install
+    - name: override dnf timers
+      ansible.builtin.template:
+        src: files/{{ item }}.timer.j2
+        dest: /etc/systemd/system/{{ item }}.timer.d/override.conf
+      loop:
+        - dnf-automatic-download
+        - dnf-automatic-install
 
-- name: setup automatic reboots timer
-  become: true
-  ansible.builtin.template:
-    src: files/dnf-automatic-reboot.{{ item }}.j2
-    dest: /etc/systemd/system/dnf-automatic-reboot.{{ item }}
-  loop:
-    - service
-    - timer
+    - name: setup automatic reboots timer
+      ansible.builtin.template:
+        src: files/dnf-automatic-reboot.{{ item }}.j2
+        dest: /etc/systemd/system/dnf-automatic-reboot.{{ item }}
+      loop:
+        - service
+        - timer
 
-- name: force reload the systemd daemon
-  become: true
-  ansible.builtin.systemd: daemon_reload=yes
+    - name: force reload the systemd daemon
+      ansible.builtin.systemd: daemon_reload=yes
 
-- name: configure automatic reboot
-  become: true
-  ansible.builtin.systemd:
-    name: "{{ item }}.timer"
-    enabled: "{{ automatic_update_enabled }}"
-  loop:
-    - dnf-automatic-download
-    - dnf-automatic-install
+    - name: configure automatic reboot
+      ansible.builtin.systemd:
+        name: "{{ item }}.timer"
+        enabled: "{{ automatic_update_enabled }}"
+      loop:
+        - dnf-automatic-download
+        - dnf-automatic-install
 
-- name: configure automatic reboot
-  become: true
-  ansible.builtin.systemd: name=dnf-automatic-reboot.timer enabled={{ automatic_update_reboot }}
+    - name: configure automatic reboot
+      ansible.builtin.systemd: name=dnf-automatic-reboot.timer enabled={{ automatic_update_reboot }}
