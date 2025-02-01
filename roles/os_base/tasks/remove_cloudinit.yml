@@ -1,4 +1,8 @@
 ---
+- name: have cloud-init remove all generated files
+  become: true
+  ansible.builtin.shell: cloud-init clean --logs -c all
+
 - name: remove cloud-init (with dnf)
   become: true
   when: ansible_facts['os_family'] == 'RedHat'
@@ -16,13 +20,15 @@
 
 - name: remove all traces of cloud-init
   become: true
-  notify: reload systemd daemon
   ansible.builtin.file:
     state: absent
     path: "{{ item }}"
   loop:
     - /etc/cloud
     - /var/lib/cloud
+
+# cloud-init clean should have removed all files below, but let's keep them listed here for removal
+# in case it didn't.
 
 - name: let NetworkManager manage DNS
   become: true

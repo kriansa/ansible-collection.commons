@@ -1,5 +1,5 @@
 ---
-- when: ansible_facts['distribution_major_version'] == "11"
+- when: ansible_facts.distribution_major_version | int < 12
   become: true
   block:
     - name: remove chrony
@@ -7,6 +7,12 @@
 
     - name: install systemd-timesyncd
       ansible.builtin.apt: name=systemd-timesyncd state=latest
+
+    - name: remove chrony user
+      ansible.builtin.user: name=chrony state=absent
+
+    - name: remove chrony group
+      ansible.builtin.group: name=chrony state=absent
 
 - name: stop polkit
   become: true

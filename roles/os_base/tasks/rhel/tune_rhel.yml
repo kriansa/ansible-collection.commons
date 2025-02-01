@@ -1,19 +1,4 @@
 ---
-- name: remove apps not useful for general purpose servers
-  become: true
-  ansible.builtin.dnf:
-    state: absent
-    autoremove: true
-    name:
-      - gssproxy
-      - rpcbind
-      - webkit2gtk3-jsc
-      - sssd-client
-      - sssd-common
-      - sssd-kcm
-      - sssd-nfs-idmap
-      - slang
-
 - name: remove anacron
   become: true
   ansible.builtin.dnf:
@@ -39,13 +24,23 @@
     - /etc/cron.monthly
     - /etc/cron.yearly
 
-- name: remove chrony
+# timesyncd is not yet available in EPEL 10: https://bugzilla.redhat.com/show_bug.cgi?id=2303892
+# in the meantime, we'll continue using chrony
+- name: replace chrony by systemd-timesyncd
+  when: ansible_facts.distribution_major_version | int < 10
   become: true
-  ansible.builtin.dnf: name=chrony state=absent autoremove=true
+  block:
+    - name: remove chrony
+      ansible.builtin.dnf: name=chrony state=absent autoremove=true
 
-- name: install systemd-timesyncd
-  become: true
-  ansible.builtin.dnf: name=systemd-timesyncd state=latest
+    - name: install systemd-timesyncd
+      ansible.builtin.dnf: name=systemd-timesyncd state=latest
+
+    - name: remove chrony user
+      ansible.builtin.user: name=chrony state=absent
+
+    - name: remove chrony group
+      ansible.builtin.group: name=chrony state=absent
 
 - name: remove rsyslog
   become: true
@@ -68,7 +63,6 @@
   loop:
     - mail
     - operator
-    - chrony
     - games
     - ftp
     - rpc
@@ -84,7 +78,6 @@
     state: absent
   loop:
     - mail
-    - chrony
     - games
     - ftp
     - rpc
@@ -114,6 +107,41 @@
     - secure
     - spooler
     - sssd
+
+- name: disable fwupd on guests
+  become: true
+  when: ansible_facts.virtualization_role == "guest"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - fwupd-refresh.timer
+    - fwupd-refresh.service
+    - fwupd.service
+
+- name: install linux-firmware on bare metal hosts
+  become: true
+  ansible.builtin.dnf:
+    name: linux-firmware
+    state: "{{ 'latest' if ansible_facts.virtualization_role == 'host' else 'absent' }}"
+
+- name: enable predictable network interface names
+  become: true
+  block:
+    - ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/udev/rules.d/80-net-setup-link.rules
+
+    - ansible.builtin.command: grep -q "net.ifnames" /proc/cmdline
+      ignore_errors: true
+      register: has_ifnames
+
+    - notify: reboot
+      when: has_ifnames.rc == 0
+      ansible.builtin.command: grubby --update-kernel=ALL --remove-args="biosdevname net.ifnames"
 
 - name: create .config path for root user
   become: true

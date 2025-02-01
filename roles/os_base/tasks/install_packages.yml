@@ -8,7 +8,12 @@
       - sudo
       - acl
 
-- name: install qemu-guest-agent
+- name: remove qemu-guest-agent for non-QEMU systems
+  when: ansible_facts.chassis_vendor != "QEMU"
+  become: true
+  ansible.builtin.package: name=qemu-guest-agent state=absent
+
+- name: install qemu-guest-agent for QEMU systems
   become: true
   when: ansible_facts.chassis_vendor == "QEMU"
   notify: restart qemu-guest-agent
@@ -20,6 +25,12 @@
   become: true
   when: ansible_facts.chassis_vendor == "QEMU"
   ansible.builtin.systemd: name=qemu-guest-agent enabled=yes
+
+- name: install dmidecode
+  become: true
+  ansible.builtin.package:
+    name: dmidecode
+    state: latest
 
 - name: check for ecc memory
   become: true

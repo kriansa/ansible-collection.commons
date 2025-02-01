@@ -1,19 +1,12 @@
 ---
-- name: disable password SSH auth
+- name: define secure SSH server standards
   become: true
   notify: restart ssh
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^PasswordAuthentication'
-    line: PasswordAuthentication no
-
-- name: disable root SSH auth
-  become: true
-  notify: restart ssh
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^PermitRootLogin'
-    line: PermitRootLogin no
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-secure-defaults.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
 
 - name: restrict su to wheel group only
   become: true

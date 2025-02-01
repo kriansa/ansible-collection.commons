@@ -1,5 +1,5 @@
 ---
-- name: remove bloat software
+- name: remove software unsuited for general-purpose servers
   when: remove_bloat
   become: true
   ansible.builtin.dnf: name={{ packages }} state=absent
@@ -18,6 +18,15 @@
       - mesa-*
       - adobe-source-code-pro-fonts
       - PackageKit
+      - gssproxy
+      - rpcbind
+      - webkit2gtk3-jsc
+      - sssd-client
+      - sssd-common
+      - sssd-kcm
+      - sssd-nfs-idmap
+      - slang
+      - tuned
 
 - name: remove firewalld
   when: remove_firewalld
@@ -32,7 +41,7 @@
     update_cache: true
 
 - name: check if a reboot is required
-  ansible.builtin.shell: needs-restarting --reboothint
+  ansible.builtin.shell: dnf needs-restarting --reboothint
   failed_when: False
   register: reboot_required
   changed_when: reboot_required.rc != 0

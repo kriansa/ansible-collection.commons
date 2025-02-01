@@ -1,5 +1,13 @@
 ---
-# TODO: Convert this to apply to Debian as well
+# TODO: Convert this file to apply to Debian as well
+
+- ansible.builtin.command: grep -q "net.ifnames" /proc/cmdline
+  ignore_errors: true
+  register: has_ifnames
+
+- notify: reboot
+  when: has_ifnames.rc == 0
+  ansible.builtin.command: grubby --update-kernel=ALL --remove-args="biosdevname net.ifnames"
 
 - name: check if cmdline is hardened
   ansible.builtin.command: grep -q "slab_nomerge" /proc/cmdline
@@ -51,7 +59,7 @@
   become: true
   notify: reboot
   ansible.builtin.command: grubby --update-kernel=ALL --args="{{ item }}"
-  when: ansible_facts['virtualization_role'] == "host" and cmdline_hardened.rc != 0
+  when: ansible_facts.virtualization_role == "host" and cmdline_hardened.rc != 0
   loop:
     # Enables IOMMU to prevent DMA attacks.
     - intel_iommu=on amd_iommu=force_isolation
