@@ -5,4 +5,4 @@ ConditionPathExists=!/run/ostree-booted
 
 [Service]
 Type=oneshot
-ExecStart=sh -c "needs-restarting --reboothint || systemctl reboot"
+ExecStart=sh -c "dnf needs-restarting --reboothint || systemctl reboot"
