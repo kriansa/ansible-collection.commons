@@ -137,7 +137,7 @@
 
     # This is no longer required for RHEL 10 as net.ifnames was removed from cmdline
     - ansible.builtin.command: grep -q "net.ifnames" /proc/cmdline
-      ignore_errors: true
+      failed_when: false
       register: has_ifnames
 
     - notify: reboot

@@ -2,7 +2,7 @@
 # TODO: Convert this file to apply to Debian as well
 
 - ansible.builtin.command: grep -q "net.ifnames" /proc/cmdline
-  ignore_errors: true
+  failed_when: false
   register: has_ifnames
 
 - notify: reboot
@@ -11,7 +11,7 @@
 
 - name: check if cmdline is hardened
   ansible.builtin.command: grep -q "slab_nomerge" /proc/cmdline
-  ignore_errors: true
+  failed_when: false
   register: cmdline_hardened
 
 - name: hardens kernel command line arguments

@@ -36,7 +36,7 @@
     - name: check if python3-podman is installed
       register: podman_python_installed
       command: python3 -c "import podman"
-      ignore_errors: true
+      failed_when: false
 
     - when: podman_python_installed.rc != 0
       block:

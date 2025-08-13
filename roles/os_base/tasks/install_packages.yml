@@ -36,7 +36,7 @@
   become: true
   ansible.builtin.shell: dmidecode -t memory | grep -q "Error Correction Type.* ECC"
   register: ecc_memory_status
-  ignore_errors: yes
+  failed_when: false
 
 - when: ecc_memory_status.rc == 0
   become: true
