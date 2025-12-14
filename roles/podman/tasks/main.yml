@@ -1,83 +1,24 @@
 ---
-- when: ansible_facts['os_family'] == 'Debian'
+- name: Install podman
   become: true
-  block:
-    - name: add kubic unstable podman apt key
-      ansible.builtin.copy:
-        src: files/kubic-libcontainers.key
-        dest: /etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg
+  ansible.builtin.package:
+    name: podman
 
-    - name: add kubic unstable podman repository
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/kubic-libcontainers.sources
-        content: |
-          Types: deb
-          URIs: https://download.opensuse.org/repositories/devel:kubic:libcontainers:unstable/Debian_Testing/
-          Signed-By: /etc/apt/keyrings/devel_kubic_libcontainers_unstable.gpg
-          Architectures: all amd64 arm64
-          Suites: /
-
-    - name: update apt cache
-      ansible.builtin.apt: update_cache=yes
-
-    # This is a dependency for `podman secret`
-    - name: install unspecified dependencies for podman
-      ansible.builtin.apt:
-        name:
-          - libgpgme11
-          - libyajl2
-
-    # Here we will install python3-podman using unorthodoxic methods because python3-podman is not
-    # currently packaged for Debian 12, and installing it through pip would require 100 other extra
-    # packages that we won't need.
-    - name: install unspecified dependencies for python3-podman
-      ansible.builtin.apt: name=python3-toml
-
-    - name: check if python3-podman is installed
-      register: podman_python_installed
-      command: python3 -c "import podman"
-      failed_when: false
-
-    - when: podman_python_installed.rc != 0
-      block:
-        - name: install python-setuptools
-          ansible.builtin.apt: name=python3-setuptools
-
-        - name: download python3-podman
-          ansible.builtin.unarchive:
-            src: https://files.pythonhosted.org/packages/73/b7/73f0aa999936c964fd6393c8a3b2339621bceb5cadb3de2a1330161625f9/podman-4.5.1.tar.gz
-            dest: /root
-            remote_src: yes
-
-        - name: install podman python
-          ansible.builtin.command:
-            cmd: python3 setup.py install
-            chdir: /root/podman-4.5.1
-
-        - name: remove files after installation
-          ansible.builtin.file:
-            path: "{{ item }}"
-            state: absent
-          loop:
-            - /root/podman-4.5.1.tar.gz
-            - /root/podman-4.5.1
-
-        - name: remove python-setuptools
-          ansible.builtin.apt: name=python3-setuptools state=absent autoremove=true purge=true
-
-- name: install python3-podman on rhel
+- name: Permit podman socket for wheel group
   become: true
-  when: ansible_facts['os_family'] == 'RedHat'
-  ansible.builtin.dnf:
-    name:
-      - python3-podman
-      - python3-toml
+  notify: Restart podman.socket
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/podman.socket.d/override.conf
+    mode: '0644'
+    content: |
+      [Socket]
+      SocketGroup=wheel
 
-- name: install podman
+- name: Add uids to /etc/subuid and /etc/subgid
   become: true
-  ansible.builtin.package: name=podman
-
-- name: add uids to /etc/subuid and /etc/subgid
-  become: true
-  ansible.builtin.lineinfile: create=yes path=/etc/{{ item }} line="containers:165536:65536"
+  ansible.builtin.lineinfile:
+    create: true
+    mode: '0600'
+    path: /etc/{{ item }}
+    line: "containers:165536:65536"
   loop: [subuid, subgid]

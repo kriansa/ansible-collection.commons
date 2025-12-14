@@ -1,16 +1,16 @@
 galaxy_info:
   description: Install the latest version of Podman
   author: kriansa
-  license: BSD
-  min_ansible_version: 2.11
+  license: Apache
+  min_ansible_version: "2.11"
 
   platforms:
-  - name: RedHat
-    versions:
-      - 9
-  - name: Debian
-    versions:
-      - 12
+    - name: EL
+      versions:
+        - "10"
+    - name: Debian
+      versions:
+        - trixie
 
   galaxy_tags:
     - containers

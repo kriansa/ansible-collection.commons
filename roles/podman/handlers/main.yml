@@ -1,0 +1,11 @@
+- name: Restart podman.socket
+  become: true
+  block:
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart socket unit
+      ansible.builtin.systemd:
+        name: podman.socket
+        state: restarted
