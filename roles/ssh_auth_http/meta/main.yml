@@ -1,22 +1,22 @@
 galaxy_info:
   description: Configure authentication using SSH keys obtainable through an HTTP endpoint
   author: kriansa
-  license: BSD
-  min_ansible_version: 2.11
+  license: Apache
+  min_ansible_version: "2.11"
 
   platforms:
-  - name: CentOS
-    versions:
-      - 8
-  - name: Amazon
-    versions:
-      - all
-  - name: Debian
-    versions:
-      - 8
+    - name: EL
+      versions:
+        - "10"
+    - name: Amazon
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - trixie
 
   galaxy_tags:
-    - linux-hardening
-    - os-primitives
+    - linuxhardening
+    - osprimitives
 
 dependencies: []

@@ -1,0 +1,12 @@
+[Unit]
+Description=SSH Key Downloader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ username }}
+ExecStart=/home/{{ username }}/.bin/ssh-key-downloader
+
+[Install]
+WantedBy=multi-user.target

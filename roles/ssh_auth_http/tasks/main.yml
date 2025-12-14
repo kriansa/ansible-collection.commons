@@ -1,12 +1,11 @@
 ---
-- name: install curl
-  become: yes
+- name: Install curl
+  become: true
   ansible.builtin.package:
-    state: latest
     name: curl
 
-- name: create $HOME/.bin
-  become: yes
+- name: Create $HOME/.bin
+  become: true
   ansible.builtin.file:
     path: /home/{{ username }}/.bin
     state: directory
@@ -14,8 +13,8 @@
     owner: "{{ username }}"
     group: "{{ username }}"
 
-- name: create $HOME/.ssh
-  become: yes
+- name: Create $HOME/.ssh
+  become: true
   ansible.builtin.file:
     path: /home/{{ username }}/.ssh
     state: directory
@@ -23,24 +22,20 @@
     owner: "{{ username }}"
     group: "{{ username }}"
 
-- become: yes
-  ansible.builtin.stat:
-    path: "/home/{{ username }}/.ssh/authorized_keys"
-  register: keys_file
-
-- name: create an empty $HOME/.ssh/authorized_keys
-  when: not keys_file.stat.exists
-  become: yes
+- name: Ensure $HOME/.ssh/authorized_keys exists
+  become: true
   ansible.builtin.file:
     path: /home/{{ username }}/.ssh/authorized_keys
     state: touch
     mode: "0600"
     owner: "{{ username }}"
     group: "{{ username }}"
+    modification_time: preserve
+    access_time: preserve
 
-- name: create script to pull out the SSH keys from URL
-  become: yes
-  notify: run ssh-key-downloader
+- name: Create script to pull out the SSH keys from URL
+  become: true
+  notify: Run ssh-key-downloader
   ansible.builtin.template:
     src: files/ssh-key-downloader.sh.j2
     dest: /home/{{ username }}/.bin/ssh-key-downloader
@@ -48,9 +43,23 @@
     owner: "{{ username }}"
     group: "{{ username }}"
 
-- name: create cron entry for running the key puller automatically every minute
-  become: yes
-  ansible.builtin.cron:
-    name: run ssh-key-downloader automatically
-    job: /home/{{ username }}/.bin/ssh-key-downloader
-    user: "{{ username }}"
+- name: Deploy systemd service unit for ssh-key-downloader
+  become: true
+  ansible.builtin.template:
+    src: files/ssh-key-downloader.service.j2
+    dest: /etc/systemd/system/ssh-key-downloader.service
+    mode: "0644"
+
+- name: Deploy systemd timer unit for ssh-key-downloader
+  become: true
+  ansible.builtin.template:
+    src: files/ssh-key-downloader.timer.j2
+    dest: /etc/systemd/system/ssh-key-downloader.timer
+    mode: "0644"
+
+- name: Enable and start ssh-key-downloader timer
+  become: true
+  ansible.builtin.systemd:
+    name: ssh-key-downloader.timer
+    enabled: true
+    daemon_reload: true

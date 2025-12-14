@@ -20,4 +20,4 @@ Example Playbook
 License
 -------
 
-3-Clause BSD.
+Apache.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run SSH Key Downloader every 30 minutes
+Requires=ssh-key-downloader.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
