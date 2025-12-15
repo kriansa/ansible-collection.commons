@@ -24,7 +24,7 @@
       - rsync
       - jq
       - tcpdump
-      # tuned is removed on `remove_packages.yml`
+      # tuned is removed on `performance_tuning.yml`
     state: absent
 
 - name: Check for unwanted kernel parameters
