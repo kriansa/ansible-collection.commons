@@ -4,15 +4,6 @@
   ansible.builtin.package:
     name: curl
 
-- name: Create $HOME/.bin
-  become: true
-  ansible.builtin.file:
-    path: /home/{{ username }}/.bin
-    state: directory
-    mode: "0755"
-    owner: "{{ username }}"
-    group: "{{ username }}"
-
 - name: Create $HOME/.ssh
   become: true
   ansible.builtin.file:
@@ -38,7 +29,7 @@
   notify: Run ssh-key-downloader
   ansible.builtin.template:
     src: files/ssh-key-downloader.sh.j2
-    dest: /home/{{ username }}/.bin/ssh-key-downloader
+    dest: /usr/local/bin/ssh-key-downloader
     mode: "0755"
     owner: "{{ username }}"
     group: "{{ username }}"

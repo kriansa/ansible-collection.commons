@@ -2,5 +2,5 @@
 - name: Run ssh-key-downloader
   become: true
   become_user: "{{ username }}"
-  ansible.builtin.command: /home/{{ username }}/.bin/ssh-key-downloader
+  ansible.builtin.command: /usr/local/bin/ssh-key-downloader
   changed_when: false

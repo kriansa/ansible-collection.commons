@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User={{ username }}
-ExecStart=/home/{{ username }}/.bin/ssh-key-downloader
+ExecStart=/usr/local/bin/ssh-key-downloader
 
 [Install]
 WantedBy=multi-user.target
