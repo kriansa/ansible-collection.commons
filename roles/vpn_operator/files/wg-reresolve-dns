@@ -2,14 +2,14 @@
 # vim: shiftwidth=4
 # pylint: disable=missing-module-docstring, invalid-name, missing-function-docstring
 
-import logging
-import subprocess
-import pathlib
-import datetime
 import argparse
+import configparser
+import datetime
+import logging
+import pathlib
+import subprocess
 import textwrap
 import time
-import configparser
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +179,7 @@ class WireguardPeerConfig:
         return len(self.peers)
 
     @staticmethod
-    # pylint: disable=too-many-arguments
-    def load_configured_peers(
+    def load_configured_peers(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         wg_conf_path: str,
         nm_conf_path: str,
         sn_conf_path: list[str],
