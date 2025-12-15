@@ -1,49 +1,58 @@
 ---
-- name: update grub
+- name: Update grub
   become: true
   ansible.builtin.script: update-grub
 
-- name: reboot
+- name: Reboot
   become: true
-  when: reboot_if_needed == true
-  ansible.builtin.shell: shutdown -r +1
+  when: reboot_if_needed
+  ansible.builtin.command: shutdown -r +1
+  changed_when: true
 
-- name: add journald persistent path
+- name: Add journald persistent path
   become: true
   ansible.builtin.command: systemd-tmpfiles --create --prefix /var/log/journal
+  changed_when: true
 
-- name: reload systemd daemon
+- name: Reload systemd daemon
   become: true
-  ansible.builtin.systemd: daemon_reload=yes
+  ansible.builtin.systemd:
+    daemon_reload: true
 
-- name: shutdown polkit
+- name: Restart ssh
   become: true
-  ansible.builtin.systemd: name=polkit state=stopped
+  ansible.builtin.systemd:
+    name: sshd
+    state: restarted
 
-- name: restart ssh
+- name: Restart cloudwatch
   become: true
-  ansible.builtin.systemd: name=sshd state=restarted
+  ansible.builtin.service:
+    name: amazon-cloudwatch-agent
+    enabled: true
+    state: restarted
 
-- name: restart cloudwatch
+- name: Restart systemd-journald
   become: true
-  ansible.builtin.service: name=amazon-cloudwatch-agent enabled=yes state=restarted
+  ansible.builtin.service:
+    name: systemd-journald
+    state: restarted
 
-- name: restart systemd-journald
+- name: Restart qemu-guest-agent
   become: true
-  ansible.builtin.service: name=systemd-journald state=restarted
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    state: restarted
 
-- name: restart qemu-guest-agent
+- name: Restart NetworkManager
   become: true
-  ansible.builtin.systemd: name=qemu-guest-agent state=restarted
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: restarted
 
-- name: restart NetworkManager
+- name: Restart cpupower
   become: true
-  ansible.builtin.systemd: name=NetworkManager state=restarted
-
-- name: restart systemd-networkd
-  become: true
-  ansible.builtin.systemd: name=systemd-networkd state=restarted
-
-- name: restart cpupower
-  become: true
-  ansible.builtin.systemd: name=cpupower enabled=yes state=restarted
+  ansible.builtin.systemd:
+    name: cpupower
+    enabled: true
+    state: restarted

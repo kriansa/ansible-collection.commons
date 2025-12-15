@@ -1,0 +1,51 @@
+---
+# Cleanup the unwanted settings installed by https://github.com/AlmaLinux/cloud-images/tree/main/ansible/roles/gencloud_guest
+- name: Remove Xen settings
+  become: true
+  block:
+    - name: Remove configuration for dracut
+      register: os_base_remove_dracut_xen_conf
+      ansible.builtin.file:
+        state: absent
+        path: /etc/dracut.conf.d/xen_pvhvm.conf
+
+    - name: Regenerate all initramfs images  # noqa: no-handler
+      when: os_base_remove_dracut_xen_conf.changed
+      ansible.builtin.command:
+        cmd: dracut -f --regenerate-all
+      changed_when: true
+
+- name: Remove unwanted packages
+  become: true
+  ansible.builtin.dnf:
+    autoremove: true
+    name:
+      - nfs-utils
+      - rsync
+      - jq
+      - tcpdump
+      # tuned is removed on `remove_packages.yml`
+    state: absent
+
+- name: Check for unwanted kernel parameters
+  ansible.builtin.command: grep -q "{{ item }}" /proc/cmdline
+  register: os_base_kernel_param_check
+  failed_when: false
+  changed_when: false
+  loop:
+    - no_timer_check
+    - biosdevname
+    - net.ifnames
+
+- name: Remove unnecessary parameters from cmdline
+  become: true
+  when: os_base_kernel_param_check.results[index].rc == 0
+  notify: Reboot
+  ansible.builtin.command: grubby --update-kernel=ALL --remove-args="{{ item }}"
+  changed_when: true
+  loop:
+    - no_timer_check
+    - biosdevname
+    - net.ifnames
+  loop_control:
+    index_var: index

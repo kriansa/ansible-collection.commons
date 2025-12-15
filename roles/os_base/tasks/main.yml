@@ -1,28 +1,28 @@
 ---
-- name: gather installed packages facts
+- name: Gather installed packages facts
   become: true
   ansible.builtin.package_facts: manager=auto
 
 # RHEL-specific tasks
 - when: ansible_facts['os_family'] == 'RedHat'
-  name: include tasks for rhel
-  include_tasks: rhel/main.yml
+  name: Include tasks for rhel
+  ansible.builtin.include_tasks: rhel/main.yml
 
 # Debian-specific tasks
 - when: ansible_facts['os_family'] == 'Debian'
-  name: include tasks for debian
-  include_tasks: debian/main.yml
+  name: Include tasks for debian
+  ansible.builtin.include_tasks: debian/main.yml
 
 # Amazon linux specific tasks
 - when: ansible_facts['distribution'] == 'Amazon'
-  name: include tasks for amazon linux
-  include_tasks: amazon/main.yml
+  name: Include tasks for amazon linux
+  ansible.builtin.include_tasks: amazon/main.yml
 
 # Generic linux packages
-- import_tasks: create_user.yml
-- import_tasks: install_packages.yml
-- import_tasks: configure_journal.yml
-- import_tasks: grub_tuning.yml
-- import_tasks: security_hardening.yml
-- import_tasks: performance_tuning.yml
-- import_tasks: remove_cloudinit.yml
+- ansible.builtin.import_tasks: create_user.yml
+- ansible.builtin.import_tasks: install_packages.yml
+- ansible.builtin.import_tasks: configure_journal.yml
+- ansible.builtin.import_tasks: grub_tuning.yml
+- ansible.builtin.import_tasks: security_hardening.yml
+- ansible.builtin.import_tasks: performance_tuning.yml
+- ansible.builtin.import_tasks: remove_cloudinit.yml

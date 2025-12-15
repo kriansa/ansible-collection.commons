@@ -22,9 +22,6 @@ remove_netplan: yes
 # Install CloudWatch agent on Amazon Linux
 install_cloudwatch: yes
 
-# Should we install SSHGuard for public-facing SSH servers?
-install_sshguard: no
-
 # Remove OS bloat packages not required for servers
 remove_bloat: yes
 

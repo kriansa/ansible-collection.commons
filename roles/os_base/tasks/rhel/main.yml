@@ -1,7 +1,10 @@
 ---
-- import_tasks: install_epel.yml
-- import_tasks: install_dnf_automatic.yml
-- import_tasks: install_packages_rhel.yml
-- import_tasks: tune_rhel.yml
-- import_tasks: configure_resolved.yml
-- import_tasks: kernel_hardening.yml
+- ansible.builtin.import_tasks: update_packages.yml
+- ansible.builtin.import_tasks: clean_alma_cloudimage.yml
+- ansible.builtin.import_tasks: remove_packages.yml
+- ansible.builtin.import_tasks: install_epel.yml
+- ansible.builtin.import_tasks: install_dnf_automatic.yml
+- ansible.builtin.import_tasks: normalize_networks.yml
+- ansible.builtin.import_tasks: remove_cron.yml
+- ansible.builtin.import_tasks: configure_resolved.yml
+- ansible.builtin.import_tasks: fix_root_user.yml

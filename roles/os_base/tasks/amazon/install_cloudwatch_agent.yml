@@ -10,12 +10,12 @@
 
 - name: copy configuration file
   become: yes
-  notify: restart cloudwatch
+  notify: Restart cloudwatch
   ansible.builtin.copy: src=files/config.json dest=/opt/aws/amazon-cloudwatch-agent/etc/config.json
 
 - name: create cloudwatch systemd service
   become: yes
-  notify: restart cloudwatch
+  notify: Restart cloudwatch
   ansible.builtin.command: >-
     /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
       -a fetch-config -m ec2 -s

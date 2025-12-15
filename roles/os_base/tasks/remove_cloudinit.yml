@@ -1,9 +1,9 @@
 ---
-- name: have cloud-init remove all generated files
+- name: Have cloud-init remove all generated files
   become: true
   ansible.builtin.shell: cloud-init clean --logs -c all
 
-- name: remove cloud-init (with dnf)
+- name: Remove cloud-init (with dnf)
   become: true
   when: ansible_facts['os_family'] == 'RedHat'
   ansible.builtin.dnf:
@@ -13,12 +13,16 @@
       - cloud-init
       - cloud-utils-growpart
 
-- name: remove cloud-init (with apt)
+- name: Remove cloud-init (with apt)
   become: true
   when: ansible_facts['os_family'] == 'Debian'
-  ansible.builtin.apt: name=cloud-init state=absent autoremove=yes purge=yes
+  ansible.builtin.apt:
+    name: cloud-init
+    state: absent
+    autoremove: yes
+    purge: yes
 
-- name: remove all traces of cloud-init
+- name: Remove all traces of cloud-init
   become: true
   ansible.builtin.file:
     state: absent
@@ -30,14 +34,14 @@
 # cloud-init clean should have removed all files below, but let's keep them listed here for removal
 # in case it didn't.
 
-- name: let NetworkManager manage DNS
+- name: Let NetworkManager manage DNS
   become: true
-  notify: restart NetworkManager
+  notify: Restart NetworkManager
   ansible.builtin.file:
     state: absent
     path: /etc/NetworkManager/conf.d/99-cloud-init.conf
 
-- name: remove cloudinit logs
+- name: Remove cloudinit logs
   become: true
   ansible.builtin.file:
     path: /var/log/{{ item }}
@@ -48,6 +52,8 @@
 
 # This must be the last thing we do because we might lose permissions if we haven't configured
 # sudoers yet
-- name: remove default cloud-init generated sudoers file
+- name: Remove default cloud-init generated sudoers file
   become: true
-  ansible.builtin.file: path=/etc/sudoers.d/90-cloud-init-users state=absent
+  ansible.builtin.file:
+    path: /etc/sudoers.d/90-cloud-init-users
+    state: absent

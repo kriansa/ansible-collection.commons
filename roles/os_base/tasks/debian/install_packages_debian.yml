@@ -41,7 +41,7 @@
 
 - name: install dbus-broker
   become: true
-  notify: reboot
+  notify: Reboot
   ansible.builtin.apt: name=dbus-broker state=latest
 
 - name: upgrade all packages
@@ -59,4 +59,4 @@
   failed_when: False
   register: reboot_required
   changed_when: reboot_required.rc == 0
-  notify: reboot
+  notify: Reboot

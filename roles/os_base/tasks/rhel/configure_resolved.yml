@@ -1,37 +1,45 @@
 ---
-- name: install systemd-resolved
+- name: Install systemd-resolved
   become: true
   ansible.builtin.dnf:
     name: systemd-resolved
-    state: latest
+    state: present
 
-- name: setup links for /etc/resolv.conf
+- name: Setup links for /etc/resolv.conf
   become: true
   ansible.builtin.file:
     src: /run/systemd/resolve/stub-resolv.conf
     dest: /etc/resolv.conf
-    force: yes
+    force: true
     follow: false
     state: link
 
-- name: create directory for systemd-resolved drop-ins
+- name: Create directory for systemd-resolved drop-ins
   become: true
   ansible.builtin.file:
     path: /etc/systemd/resolved.conf.d
     state: directory
+    mode: "0755"
 
-- name: setup fallback DNS servers
+- name: Setup fallback DNS servers
   become: true
   ansible.builtin.copy:
     dest: /etc/systemd/resolved.conf.d/10-fallback-dns.conf
+    mode: "0644"
     content: |
       [Resolve]
-      FallbackDNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google 8.8.4.4#dns.google 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com 2001:4860:4860::8888#dns.google 2001:4860:4860::8844#dns.google
+      FallbackDNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google \
+      8.8.4.4#dns.google 2606:4700:4700::1111#cloudflare-dns.com \
+      2606:4700:4700::1001#cloudflare-dns.com 2001:4860:4860::8888#dns.google \
+      2001:4860:4860::8844#dns.google
 
       # Disable multicast dns and Link-local multicast name resolution (LLMNR)
       LLMNR=no
       MulticastDNS=no
 
-- name: enable systemd-resolved service
+- name: Enable systemd-resolved service
   become: true
-  ansible.builtin.systemd: name=systemd-resolved state=restarted enabled=yes
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+    enabled: true

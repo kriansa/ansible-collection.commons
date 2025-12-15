@@ -1,48 +1,78 @@
 ---
-- name: install utility packages
+- name: Install utility packages
   become: true
   ansible.builtin.package:
-    state: latest
+    state: present
     name:
       - htop
       - sudo
       - acl
 
-- name: remove qemu-guest-agent for non-QEMU systems
+- name: Remove qemu-guest-agent for non-QEMU systems
   when: ansible_facts.chassis_vendor != "QEMU"
   become: true
-  ansible.builtin.package: name=qemu-guest-agent state=absent
-
-- name: install qemu-guest-agent for QEMU systems
-  become: true
-  when: ansible_facts.chassis_vendor == "QEMU"
-  notify: restart qemu-guest-agent
   ansible.builtin.package:
     name: qemu-guest-agent
-    state: latest
+    state: absent
 
-- name: enable qemu-guest-agent
+- name: Install qemu-guest-agent for QEMU systems
   become: true
   when: ansible_facts.chassis_vendor == "QEMU"
-  ansible.builtin.systemd: name=qemu-guest-agent enabled=yes
+  notify: Restart qemu-guest-agent
+  ansible.builtin.package:
+    name: qemu-guest-agent
+    state: present
 
-- name: install dmidecode
+- name: Enable qemu-guest-agent
+  become: true
+  when: ansible_facts.chassis_vendor == "QEMU"
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+
+- name: Install linux-firmware on bare metal hosts
+  become: true
+  ansible.builtin.package:
+    name: linux-firmware
+    state: "{{ 'latest' if ansible_facts.virtualization_role == 'host' else 'absent' }}"
+
+- name: Disable fwupd on guests
+  become: true
+  when: ansible_facts.virtualization_role == "guest"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - fwupd-refresh.timer
+    - fwupd-refresh.service
+    - fwupd.service
+
+- name: Install dmidecode
   become: true
   ansible.builtin.package:
     name: dmidecode
-    state: latest
+    state: present
 
-- name: check for ecc memory
+- name: Check for ecc memory
   become: true
-  ansible.builtin.shell: dmidecode -t memory | grep -q "Error Correction Type.* ECC"
-  register: ecc_memory_status
+  ansible.builtin.shell:
+    cmd: set -o pipefail && dmidecode -t memory | grep -q "Error Correction Type.* ECC"
+    executable: /bin/bash
+  register: os_base_ecc_memory_status
   failed_when: false
+  changed_when: false
 
-- when: ecc_memory_status.rc == 0
+- name: Install ECC memory monitoring tools
+  when: os_base_ecc_memory_status.rc == 0
   become: true
   block:
-    - name: install ecc memory logger
-      ansible.builtin.package: name=rasdaemon
+    - name: Install ecc memory logger
+      ansible.builtin.package:
+        name: rasdaemon
 
-    - name: enable rasdaemon service (ecc memory daemon)
-      ansible.builtin.systemd: name=rasdaemon state=started enabled=yes
+    - name: Enable rasdaemon service (ecc memory daemon)
+      ansible.builtin.systemd:
+        name: rasdaemon
+        state: started
+        enabled: true

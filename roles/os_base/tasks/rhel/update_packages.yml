@@ -1,0 +1,14 @@
+---
+- name: Upgrade all packages
+  become: true
+  ansible.builtin.dnf:
+    name: '*'
+    state: latest
+    update_cache: true
+
+- name: Check if a reboot is required
+  ansible.builtin.command: dnf needs-restarting --reboothint
+  failed_when: false
+  register: os_base_tmp
+  changed_when: os_base_tmp.rc != 0
+  notify: Reboot

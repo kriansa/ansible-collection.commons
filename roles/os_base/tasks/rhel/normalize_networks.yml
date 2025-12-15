@@ -1,0 +1,26 @@
+---
+- name: Migrate network sysconfig files to NetworkManager keyfiles
+  become: true
+  ansible.builtin.command: nmcli connection migrate
+  changed_when: false
+
+- name: Use a single network config file
+  become: true
+  register: os_base_nmconnections_files
+  ansible.builtin.shell:
+    cmd: >-
+      rm /etc/NetworkManager/system-connections/eth0.nmconnection &&
+      mv "/etc/NetworkManager/system-connections/System eth0.nmconnection" /etc/NetworkManager/system-connections/eth0.nmconnection
+    removes: /etc/NetworkManager/system-connections/System eth0.nmconnection
+
+- name: Restart NetworkManager  # noqa: no-handler
+  when: os_base_nmconnections_files.changed
+  become: true
+  ansible.builtin.service:
+    name: NetworkManager
+    state: restarted
+
+- name: Rename "System eth0" to eth0
+  become: true
+  ansible.builtin.shell: nmcli connection modify "System eth0" connection.id eth0 &>/dev/null || true
+  changed_when: false

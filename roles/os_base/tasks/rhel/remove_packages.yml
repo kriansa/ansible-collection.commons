@@ -1,0 +1,36 @@
+---
+- name: Remove rsyslog
+  become: true
+  ansible.builtin.dnf:
+    name: rsyslog
+    state: absent
+
+- name: Remove old logs
+  become: true
+  ansible.builtin.file:
+    path: /var/log/{{ item }}
+    state: absent
+  loop:
+    - firewalld
+    - messages
+    - secure
+    - spooler
+    - sssd
+
+- name: Remove firewalld
+  when: remove_firewalld
+  become: true
+  ansible.builtin.dnf:
+    name: firewalld*
+    state: absent
+
+- name: Remove software unsuited for general-purpose servers
+  when: remove_bloat
+  become: true
+  ansible.builtin.dnf:
+    state: absent
+    name:
+      - gssproxy
+      - rpcbind
+      - sssd*
+      - slang

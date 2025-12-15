@@ -1,20 +1,28 @@
 ---
-- name: create persistent path for journald logs
+- name: Create persistent path for journald logs
   become: true
-  ansible.builtin.file: path=/var/log/journal state=directory mode="2755" group=systemd-journal
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    mode: "2755"
+    group: systemd-journal
   notify:
-    - add journald persistent path
-    - restart systemd-journald
+    - Add journald persistent path
+    - Restart systemd-journald
 
-- name: create journald drop-in directory
+- name: Create journald drop-in directory
   become: true
-  ansible.builtin.file: path=/etc/systemd/journald.conf.d state=directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
 
-- name: limit journal log retention size
+- name: Limit journal log retention size
   become: true
-  notify: restart systemd-journald
+  notify: Restart systemd-journald
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/01-limit-space.conf
+    mode: "0644"
     content: |
       [Journal]
       SystemMaxUse=500M

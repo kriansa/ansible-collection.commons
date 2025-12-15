@@ -1,15 +1,16 @@
 ---
-- name: enable dnf crb repository
+- name: Enable dnf crb repository
   become: true
   ansible.builtin.command: dnf config-manager --set-enabled crb
+  changed_when: false
 
-- name: install epel rpm key
+- name: Install epel rpm key
   become: true
   ansible.builtin.rpm_key:
     key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ ansible_facts.distribution_major_version }}
 
-- name: install epel
+- name: Install epel
   become: true
   ansible.builtin.dnf:
     name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_facts.distribution_major_version }}.noarch.rpm
-    state: latest
+    state: present

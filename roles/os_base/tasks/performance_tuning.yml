@@ -1,20 +1,22 @@
 ---
 # See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nvme-ebs-volumes.html#timeout-nvme-ebs-volumes
 # See: https://github.com/coreos/fedora-coreos-tracker/issues/605
-- name: create udev rules for AWS nvme storage
+- name: Create udev rules for AWS nvme storage
   become: true
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/01-aws-nvme.rules
+    mode: "0644"
     content: |
       ACTION=="add", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="Amazon Elastic Block Store", ATTR{queue/io_timeout}="4294967295"
       ACTION=="add", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="Amazon EC2 NVMe Instance Storage", ATTR{queue/io_timeout}="30000"
 
 # See: https://github.com/pop-os/default-settings/pull/149
 # See: https://www.phoronix.com/forums/forum/software/general-linux-open-source/1334042-linux-5-19-looking-real-good-on-the-hp-dev-one-xanmod-liquorix-also-tested
-- name: use optimized disk schedulers
+- name: Use optimized disk schedulers
   become: true
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/61-disk-scheduler.rules
+    mode: "0644"
     content: |
       ACTION!="add|change", GOTO="disk_scheduler_end"
       SUBSYSTEM!="block", GOTO="disk_scheduler_end"
@@ -32,31 +34,48 @@
       # Stop processing
       LABEL="disk_scheduler_end"
 
-- name: enable MLGRU for kernels >= 6.1
+- name: Enable automatic fstrim
   become: true
-  when: ansible_kernel is version('6.1', '>=')
-  ansible.builtin.copy:
-    dest: /etc/tmpfiles.d/mglru.conf
-    content: |
-      w /sys/kernel/mm/lru_gen/enabled - - - - 7
-      w /sys/kernel/mm/lru_gen/min_ttl_ms - - - - 0
+  ansible.builtin.systemd:
+    name: fstrim.timer
+    enabled: true
 
-- name: enable automatic fstrim
+- name: Stop polkit
   become: true
-  ansible.builtin.systemd: name=fstrim.timer enabled=yes
+  when: '"polkit" in ansible_facts.packages'
+  ansible.builtin.systemd:
+    name: polkit
+    state: stopped
 
-- name: remove tuned
+- name: Remove polkit and tuned
   become: true
-  notify: shutdown polkit
-  ansible.builtin.package: name=tuned state=absent
+  ansible.builtin.dnf:
+    name:
+      - polkit
+      - tuned
+    state: absent
+    autoremove: true
 
-- name: set cpu frequency on boot
+- name: Remove polkit user
+  become: true
+  ansible.builtin.user:
+    name: polkitd
+    state: absent
+
+- name: Remove polkit group
+  become: true
+  ansible.builtin.group:
+    name: polkitd
+    state: absent
+
+- name: Set cpu frequency on boot
   become: true
   notify:
-    - reload systemd daemon
-    - restart cpupower
+    - Reload systemd daemon
+    - Restart cpupower
   ansible.builtin.copy:
     dest: /etc/systemd/system/cpupower.service
+    mode: "0644"
     content: |
       [Unit]
       Description=Apply cpupower configuration
@@ -71,12 +90,12 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: tune sysctl variables for servers
+- name: Tune sysctl variables for servers
   become: true
   ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
-    sysctl_set: yes
+    sysctl_set: true
     sysctl_file: /etc/sysctl.d/70-tuned-settings.conf
   loop:
       # Setup for when not acting as a router
