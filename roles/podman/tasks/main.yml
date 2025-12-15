@@ -1,12 +1,22 @@
 ---
 - name: Install podman
   become: true
+  notify: Restart podman.socket
   ansible.builtin.package:
     name: podman
 
+- name: Create podman socket drop-in directory
+  become: true
+  ansible.builtin.file:
+    state: directory
+    mode: '0755'
+    path: /etc/systemd/system/podman.socket.d
+
 - name: Permit podman socket for wheel group
   become: true
-  notify: Restart podman.socket
+  notify:
+    - Reload systemd daemon
+    - Restart podman.socket
   ansible.builtin.copy:
     dest: /etc/systemd/system/podman.socket.d/override.conf
     mode: '0644'
