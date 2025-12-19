@@ -1,4 +1,4 @@
-VPN Operator
+Tunneled SSH Operator
 ============
 
 This installs a WireGuard(tm) VPN client and by default enables SSH on that IP address only.
@@ -11,4 +11,4 @@ See [defaults/main.yml](defaults/main.yml)
 License
 -------
 
-3-Clause BSD.
+Apache 2.0
