@@ -20,4 +20,4 @@ Example Playbook
 License
 -------
 
-Apache.
+Apache 2.0

@@ -6,4 +6,4 @@ This installs my basic and opinionated structure to deploy containers on a singl
 License
 -------
 
-3-Clause BSD.
+Apache 2.0

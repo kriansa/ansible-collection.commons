@@ -6,4 +6,4 @@ This installs the latest version of Podman.
 License
 -------
 
-Apache.
+Apache 2.0

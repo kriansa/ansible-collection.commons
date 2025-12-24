@@ -1,4 +1,5 @@
 # Sheepod CLI
+# vim: ft=sh
 #
 # Usage: Source this file at the bottom of your deploy script. Ensure your script contains:
 # - A `cli:options` function that sets `CLI_NAME`, `OPTIONS_CMD`, `OPTIONS_VARS` and `OPTIONS_DESC`
