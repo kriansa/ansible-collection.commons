@@ -1,10 +1,14 @@
 ---
-- ansible.builtin.import_tasks: update_packages.yml
 - ansible.builtin.import_tasks: clean_alma_cloudimage.yml
 - ansible.builtin.import_tasks: remove_packages.yml
+- ansible.builtin.import_tasks: remove_cron.yml
+- ansible.builtin.import_tasks: remove_tuned.yml
+- ansible.builtin.import_tasks: update_packages.yml
 - ansible.builtin.import_tasks: install_epel.yml
 - ansible.builtin.import_tasks: install_dnf_automatic.yml
 - ansible.builtin.import_tasks: normalize_networks.yml
-- ansible.builtin.import_tasks: remove_cron.yml
 - ansible.builtin.import_tasks: configure_resolved.yml
 - ansible.builtin.import_tasks: fix_root_user.yml
+
+# Currently disabled as chrony is more reliable than systemd-timesyncd
+# - ansible.builtin.import_tasks: remove_chrony.yml

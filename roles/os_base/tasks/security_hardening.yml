@@ -4,7 +4,7 @@
   notify: Restart ssh
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/99-secure-defaults.conf
-    mode: "0644"
+    mode: "0600"
     content: |
       PasswordAuthentication no
       PermitRootLogin no
@@ -111,6 +111,11 @@
       ## These prevent many TOCTOU races.
     - { name: fs.protected_symlinks, value: "1" }
     - { name: fs.protected_hardlinks, value: "1" }
+
+      ## TIOCSTI is an ioctl system call in the Linux kernel that lets a process simulate terminal
+      ## input by pushing characters into the input queue for a controlling TTY. This legacy
+      ## mechanism can be abused for malicious purposes.
+    - { name: dev.tty.legacy_tiocsti, value: "0" }
 
 - name: Check if cmdline is hardened
   ansible.builtin.command: grep -q "slab_nomerge" /proc/cmdline

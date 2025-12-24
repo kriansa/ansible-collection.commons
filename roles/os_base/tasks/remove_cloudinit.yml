@@ -1,7 +1,8 @@
 ---
 - name: Have cloud-init remove all generated files
   become: true
-  ansible.builtin.shell: cloud-init clean --logs -c all
+  ansible.builtin.command: cloud-init clean --logs -c all
+  changed_when: false
 
 - name: Remove cloud-init (with dnf)
   become: true
@@ -19,8 +20,8 @@
   ansible.builtin.apt:
     name: cloud-init
     state: absent
-    autoremove: yes
-    purge: yes
+    autoremove: true
+    purge: true
 
 - name: Remove all traces of cloud-init
   become: true

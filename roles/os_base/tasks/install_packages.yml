@@ -48,31 +48,35 @@
     - fwupd-refresh.service
     - fwupd.service
 
-- name: Install dmidecode
+- name: Install Rasdaemon on host
   become: true
-  ansible.builtin.package:
-    name: dmidecode
-    state: present
-
-- name: Check for ecc memory
-  become: true
-  ansible.builtin.shell:
-    cmd: set -o pipefail && dmidecode -t memory | grep -q "Error Correction Type.* ECC"
-    executable: /bin/bash
-  register: os_base_ecc_memory_status
-  failed_when: false
-  changed_when: false
-
-- name: Install ECC memory monitoring tools
-  when: os_base_ecc_memory_status.rc == 0
-  become: true
+  when: ansible_facts.virtualization_role == "host"
   block:
-    - name: Install ecc memory logger
+    - name: Install dmidecode
+      become: true
       ansible.builtin.package:
-        name: rasdaemon
+        name: dmidecode
+        state: present
 
-    - name: Enable rasdaemon service (ecc memory daemon)
-      ansible.builtin.systemd:
-        name: rasdaemon
-        state: started
-        enabled: true
+    - name: Check for ecc memory
+      become: true
+      ansible.builtin.shell:
+        cmd: set -o pipefail && dmidecode -t memory | grep -q "Error Correction Type.* ECC"
+        executable: /bin/bash
+      register: os_base_ecc_memory_status
+      failed_when: false
+      changed_when: false
+
+    - name: Install ECC memory monitoring tools
+      when: os_base_ecc_memory_status.rc == 0
+      become: true
+      block:
+        - name: Install ecc memory logger
+          ansible.builtin.package:
+            name: rasdaemon
+
+        - name: Enable rasdaemon service (ecc memory daemon)
+          ansible.builtin.systemd:
+            name: rasdaemon
+            state: started
+            enabled: true

@@ -40,35 +40,7 @@
     name: fstrim.timer
     enabled: true
 
-- name: Stop polkit
-  become: true
-  when: '"polkit" in ansible_facts.packages'
-  ansible.builtin.systemd:
-    name: polkit
-    state: stopped
-
-- name: Remove polkit and tuned
-  become: true
-  ansible.builtin.dnf:
-    name:
-      - polkit
-      - tuned
-    state: absent
-    autoremove: true
-
-- name: Remove polkit user
-  become: true
-  ansible.builtin.user:
-    name: polkitd
-    state: absent
-
-- name: Remove polkit group
-  become: true
-  ansible.builtin.group:
-    name: polkitd
-    state: absent
-
-- name: Set cpu frequency on boot
+- name: Set cpu frequency on boot for bare metal servers
   become: true
   notify:
     - Reload systemd daemon

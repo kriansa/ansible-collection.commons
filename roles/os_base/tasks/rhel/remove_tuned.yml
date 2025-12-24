@@ -1,0 +1,28 @@
+---
+- name: Remove tuned and dependent packages
+  become: true
+  when: '"tuned" in ansible_facts.packages'
+  block:
+    - name: Stop polkit
+      when: '"polkit" in ansible_facts.packages'
+      ansible.builtin.systemd:
+        name: polkit
+        state: stopped
+
+    - name: Remove polkit and tuned
+      ansible.builtin.dnf:
+        name:
+          - polkit
+          - tuned
+        state: absent
+        autoremove: true
+
+    - name: Remove polkit user
+      ansible.builtin.user:
+        name: polkitd
+        state: absent
+
+    - name: Remove polkit group
+      ansible.builtin.group:
+        name: polkitd
+        state: absent
