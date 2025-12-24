@@ -40,6 +40,19 @@ When calling the roles you just need to ensure the folder structure is followed.
     - kriansa.commons.os_base
 ```
 
+## Modules
+
+### quadlet_app
+
+Deploy Podman Quadlet applications with an opinionated, structured approach. See the [quadlet_app documentation](docs/QUADLET_APP.md) for details.
+
+```yaml
+- name: Deploy application
+  kriansa.commons.quadlet_app:
+    src: apps/myapp
+    state: started
+```
+
 ## License
 
 Apache 2.0
