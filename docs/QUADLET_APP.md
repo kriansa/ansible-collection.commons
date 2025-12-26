@@ -120,7 +120,6 @@ Applies to: `ContainerName` (`.container`), `PodName` (`.pod`), `VolumeName` (`.
     src: apps/postgres
     name: prod-db
     state: started
-    enabled: true
   vars:
     db_version: "16"
     db_password: "{{ vault_db_password }}"
@@ -133,7 +132,6 @@ Applies to: `ContainerName` (`.container`), `PodName` (`.pod`), `VolumeName` (`.
 | `src` | Yes | - | Path to application directory |
 | `name` | No | basename of src | Application name (lowercase, letters/numbers/hyphens/underscores) |
 | `state` | No | `installed` | Deployment state: `installed`, `started`, `restarted` |
-| `enabled` | No | `false` | Enable service to start on boot |
 | `force` | No | `false` | Force redeployment even if files haven't changed |
 
 ### States

@@ -57,12 +57,6 @@ options:
         type: str
         choices: ['installed', 'started', 'restarted']
         default: installed
-    enabled:
-        description:
-            - Enable main service to start on boot (systemctl enable)
-        required: false
-        type: bool
-        default: false
     force:
         description:
             - Force overwrite files even if content hasn't changed
@@ -99,7 +93,6 @@ EXAMPLES = r"""
     src: podman-apps/backend
     name: prod-backend
     state: started
-    enabled: true
 
 # Deploy with variables for templating
 - name: Deploy database
@@ -796,7 +789,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         self.src = self.params["src"]
         self.app_name = self.params.get("name") or os.path.basename(self.src)
         self.state = self.params["state"]
-        self.enabled = self.params["enabled"]
         self.force = self.params["force"]
 
         # Check if files were processed by action plugin on control node
@@ -1026,13 +1018,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             self._systemctl(["daemon-reload"])
             service_changed = True
 
-        # Enable if requested
-        if self.enabled:
-            # Check if already enabled
-            if not self._is_service_enabled(service_name):
-                self._systemctl(["enable", service_name])
-                service_changed = True
-
         # Determine if we need to restart dependencies and main service
         needs_restart = False
         if self.state == "restarted":
@@ -1161,9 +1146,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         if self.state == "restarted":
             # Always restart when restarted state is requested
             return True
-        if self.enabled:
-            # Need to enable if not currently enabled
-            return not self._is_service_enabled(service_name)
 
         return False
 
@@ -1186,28 +1168,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 timeout=10,
             )
             return result.returncode == 0 and result.stdout.strip() == "active"
-        except Exception:  # pylint: disable=broad-exception-caught
-            return False
-
-    def _is_service_enabled(self, service_name: str) -> bool:
-        """
-        Check if service is enabled for auto-start.
-
-        Args:
-            service_name: Service name to check
-
-        Returns:
-            True if service is enabled
-        """
-        try:
-            result = subprocess.run(
-                ["systemctl", "is-enabled", service_name],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            return result.returncode == 0 and result.stdout.strip() == "enabled"
         except Exception:  # pylint: disable=broad-exception-caught
             return False
 
@@ -1255,7 +1215,6 @@ def main():
                 "default": "installed",
                 "choices": ["installed", "started", "restarted"],
             },
-            "enabled": {"type": "bool", "default": False},
             "force": {"type": "bool", "default": False},
             # Internal parameters used by action plugin
             "_control_node_processed": {"type": "bool", "default": False, "required": False},
