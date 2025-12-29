@@ -53,6 +53,7 @@
 - name: Restart cpupower
   become: true
   ansible.builtin.systemd:
+    daemon_reload: true
     name: cpupower
     enabled: true
     state: restarted

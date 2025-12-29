@@ -1,4 +1,8 @@
 ---
+# Some of these recommendations are taken from Pop!_OS and CachyOS
+# See: https://github.com/pop-os/default-settings
+# See: https://github.com/CachyOS/CachyOS-Settings
+
 # See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nvme-ebs-volumes.html#timeout-nvme-ebs-volumes
 # See: https://github.com/coreos/fedora-coreos-tracker/issues/605
 - name: Create udev rules for AWS nvme storage
@@ -12,6 +16,7 @@
 
 # See: https://github.com/pop-os/default-settings/pull/149
 # See: https://www.phoronix.com/forums/forum/software/general-linux-open-source/1334042-linux-5-19-looking-real-good-on-the-hp-dev-one-xanmod-liquorix-also-tested
+# See: https://atlarge-research.com/pdfs/2024-io-schedulers.pdf
 - name: Use optimized disk schedulers
   become: true
   ansible.builtin.copy:
@@ -28,11 +33,37 @@
       ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq", GOTO="disk_scheduler_end"
       KERNEL=="mmcblk[0-9]|mmcblk[0-9]p[0-9]*", ATTR{queue/scheduler}="bfq", GOTO="disk_scheduler_end"
 
-      # Kyber is recommended for faster storage such as NVME and SATA SSDs.
-      KERNEL=="nvme?n?|sd?", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="kyber", GOTO="disk_scheduler_end"
+      # None is recommended for faster storage such as NVME and SATA SSDs.
+      KERNEL=="nvme?n?|sd?", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none", GOTO="disk_scheduler_end"
 
       # Stop processing
       LABEL="disk_scheduler_end"
+
+# See: https://www.apalrd.net/posts/2023/network_realtek8156
+- name: Use correct realtek driver for RTL8156 chip
+  become: true
+  ansible.builtin.copy:
+    src: 50-usb-realtek-net.rules
+    dest: /etc/udev/rules.d/50-usb-realtek-net.rules
+    mode: "0644"
+
+- name: Create systemd directory for overrides
+  become: true
+  ansible.builtin.file:
+    state: directory
+    mode: "0755"
+    dest: /etc/systemd/system.conf.d
+
+- name: Set lower default timeouts for SystemD
+  become: true
+  notify: Reload systemd daemon
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/10-timeouts.conf
+    mode: "0644"
+    content: |
+      [Manager]
+      DefaultTimeoutStartSec=15s
+      DefaultTimeoutStopSec=15s
 
 - name: Enable automatic fstrim
   become: true
@@ -42,9 +73,7 @@
 
 - name: Set cpu frequency on boot for bare metal servers
   become: true
-  notify:
-    - Reload systemd daemon
-    - Restart cpupower
+  notify: Restart cpupower
   ansible.builtin.copy:
     dest: /etc/systemd/system/cpupower.service
     mode: "0644"

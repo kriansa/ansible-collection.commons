@@ -1,0 +1,15 @@
+---
+- name: Check for unwanted kernel parameters
+  become: true
+  when: ansible_facts.virtualization_role == "guest"
+  ansible.builtin.command: grep -q nowatchdog /proc/cmdline
+  register: os_base_kernel_param_check
+  changed_when: false
+  failed_when: false
+
+- name: Disable watchdog for virtualized servers
+  become: true
+  when: os_base_kernel_param_check.rc == 1 and ansible_facts.virtualization_role == "guest"
+  notify: Reboot
+  ansible.builtin.command: grubby --update-kernel=ALL --args="nowatchdog nmi_watchdog=0"
+  changed_when: true

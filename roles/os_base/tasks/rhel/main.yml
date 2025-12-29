@@ -8,6 +8,7 @@
 - ansible.builtin.import_tasks: install_dnf_automatic.yml
 - ansible.builtin.import_tasks: normalize_networks.yml
 - ansible.builtin.import_tasks: configure_resolved.yml
+- ansible.builtin.import_tasks: disable_watchdog.yml
 - ansible.builtin.import_tasks: fix_root_user.yml
 
 # Currently disabled as chrony is more reliable than systemd-timesyncd

@@ -14,9 +14,7 @@
 
 - name: Permit podman socket for wheel group
   become: true
-  notify:
-    - Reload systemd daemon
-    - Restart podman.socket
+  notify: Restart podman.socket
   ansible.builtin.copy:
     dest: /etc/systemd/system/podman.socket.d/override.conf
     mode: '0644'
