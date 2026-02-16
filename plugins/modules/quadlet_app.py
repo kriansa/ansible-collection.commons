@@ -64,6 +64,13 @@ options:
         required: false
         type: bool
         default: false
+    systemctl_timeout:
+        description:
+            - Timeout in seconds for systemctl commands (start, stop, restart, daemon-reload)
+            - Increase this for services that take a long time to start (e.g., large image pulls)
+        required: false
+        type: int
+        default: 120
 
 author:
     - Daniel Pereira (@kriansa)
@@ -109,6 +116,13 @@ EXAMPLES = r"""
     src: podman-apps/webapp
     state: restarted
     force: true
+
+# Deploy service with extended timeout for slow image pulls
+- name: Deploy application with custom timeout
+  kriansa.commons.quadlet_app:
+    src: podman-apps/unifi-network
+    state: started
+    systemctl_timeout: 300
 """
 
 RETURN = r"""
@@ -790,6 +804,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         self.app_name = self.params.get("name") or os.path.basename(self.src)
         self.state = self.params["state"]
         self.force = self.params["force"]
+        self.systemctl_timeout = self.params["systemctl_timeout"]
 
         # Check if files were processed by action plugin on control node
         self.control_node_processed = self.params.get("_control_node_processed", False)
@@ -1015,6 +1030,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
 
         # Reload daemon if files changed
         if self.changed:
+            self._validate_quadlet_syntax()
             self._systemctl(["daemon-reload"])
             service_changed = True
 
@@ -1107,6 +1123,26 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         # We restart them all together for efficiency
         self._systemctl(["restart"] + dependencies)
 
+    def _validate_quadlet_syntax(self):
+        """Validate quadlet files syntax using podman-system-generator dry run."""
+        generator = "/usr/lib/systemd/system-generators/podman-system-generator"
+        cmd = [generator, "-dryrun", "-v"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            self.module.fail_json(msg=f"{generator} -dryrun -v timed out")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            self.module.fail_json(msg=f"Failed to execute quadlet syntax validation: {e}")
+
+        if result.returncode != 0:
+            self.module.fail_json(
+                msg=result.stderr.strip(),
+                cmd=" ".join(cmd),
+                rc=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+
     def _systemctl(self, args: List[str]):
         """
         Execute systemctl command.
@@ -1116,7 +1152,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         """
         cmd = ["systemctl"] + args
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=self.systemctl_timeout)
             if result.returncode != 0:
                 self.module.fail_json(
                     msg=f"systemctl {' '.join(args)} failed: {result.stderr.strip()}",
@@ -1126,7 +1162,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                     stderr=result.stderr,
                 )
         except subprocess.TimeoutExpired:
-            self.module.fail_json(msg=f"systemctl {' '.join(args)} timed out")
+            self.module.fail_json(msg=f"systemctl {' '.join(args)} timed out after {self.systemctl_timeout}s")
         except Exception as e:  # pylint: disable=broad-exception-caught
             self.module.fail_json(msg=f"Failed to execute systemctl: {e}")
 
@@ -1216,6 +1252,7 @@ def main():
                 "choices": ["installed", "started", "restarted"],
             },
             "force": {"type": "bool", "default": False},
+            "systemctl_timeout": {"type": "int", "default": 120},
             # Internal parameters used by action plugin
             "_control_node_processed": {"type": "bool", "default": False, "required": False},
             "_files_data": {"type": "dict", "required": False},

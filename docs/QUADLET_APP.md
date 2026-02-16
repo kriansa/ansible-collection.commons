@@ -133,6 +133,7 @@ Applies to: `ContainerName` (`.container`), `PodName` (`.pod`), `VolumeName` (`.
 | `name` | No | basename of src | Application name (lowercase, letters/numbers/hyphens/underscores) |
 | `state` | No | `installed` | Deployment state: `installed`, `started`, `restarted` |
 | `force` | No | `false` | Force redeployment even if files haven't changed |
+| `systemctl_timeout` | No | `120` | Timeout in seconds for systemctl commands (start, stop, restart, daemon-reload) |
 
 ### States
 
