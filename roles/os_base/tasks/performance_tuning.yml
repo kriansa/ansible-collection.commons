@@ -30,7 +30,6 @@
       KERNEL=="vd?", ENV{DEVTYPE}=="disk", ATTRS{vendor}=="0x1b36", ATTR{queue/scheduler}="none", GOTO="disk_scheduler_end"
 
       # BFQ is recommended for slow storage such as rotational block devices and SD cards.
-      ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq", GOTO="disk_scheduler_end"
       KERNEL=="mmcblk[0-9]|mmcblk[0-9]p[0-9]*", ATTR{queue/scheduler}="bfq", GOTO="disk_scheduler_end"
 
       # None is recommended for faster storage such as NVME and SATA SSDs.
