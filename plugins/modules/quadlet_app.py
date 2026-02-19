@@ -557,8 +557,9 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
                 prefixed = f"{self.app_name}--{resource_ref}"
 
                 # Add default options for .volume when none are specified
-                if resource_ref.endswith(".volume") and not rest:
-                    rest = f":{self.DEFAULT_NAMED_VOLUME_OPTIONS}"
+                # rest is "" or ":/dest" or ":/dest:options" — fewer than 2 colons means no options
+                if resource_ref.endswith(".volume") and rest.count(":") < 2:
+                    rest = f"{rest}:{self.DEFAULT_NAMED_VOLUME_OPTIONS}"
 
                 return f"{leading_ws}{directive}={prefixed}{rest}"
         else:
