@@ -15,12 +15,12 @@ myapp/
 │   ├── db.container       # Optional: Additional containers
 │   ├── data.volume        # Optional: Volumes
 │   └── app.network        # Optional: Networks
-├── init.d/                # Optional: One-time initialization files
+├── init/                  # Optional: One-time initialization files
 │   ├── main/              # Matches quadlet stem (main.container)
 │   │   └── init.sql
 │   └── db/
 │       └── schema.sql
-└── config.d/              # Optional: Runtime configuration files
+└── config/                # Optional: Runtime configuration files
     ├── main/
     │   └── nginx.conf
     └── db/
@@ -35,12 +35,12 @@ myapp/
   - Resource names are automatically prefixed with app name when deployed
   - Contents in these files are automatically templated like `ansible.commons.template`
 
-- **init.d/**: One-time initialization files mounted into containers
+- **init/**: One-time initialization files mounted into containers
   - Subdirectories use the quadlet stem without suffix (e.g., `main/` for `main.container`)
   - Files are deployed to `/srv/{appname}/init/{container}/`
   - Mounted read-only by default
 
-- **config.d/**: Runtime configuration files mounted into containers
+- **config/**: Runtime configuration files mounted into containers
   - Subdirectories use the quadlet stem without suffix (e.g., `main/` for `main.container`)
   - Files are deployed to `/srv/{appname}/config/{container}/`
   - Can be mounted read-write or read-only
@@ -67,23 +67,27 @@ After=myapp--db.service
 
 [Container]
 Network=myapp--app.network
-Volume=myapp--data.volume
+Volume=myapp--data.volume:rw,Z,U
 ```
 
+*For named `.volume` references with no options specified, `rw,Z,U` is applied automatically.*
+
 ### Path Replacement
-Volume paths using `init.d` or `config.d` are replaced with deployment paths.
+Volume paths using `%init%` or `%config%` placeholders are replaced with deployment paths.
 
 ```ini
 # Before preprocessing
 [Container]
-Volume=init.d:/docker-entrypoint-initdb.d:ro,z
-Volume=config.d/nginx.conf:/etc/nginx/nginx.conf:ro,z
+Volume=%init%:/docker-entrypoint-initdb.d
+Volume=%config%/nginx.conf:/etc/nginx/nginx.conf
 
-# After preprocessing (app name: myapp)
+# After preprocessing (app name: myapp, container: main)
 [Container]
-Volume=/srv/myapp/init/main:/docker-entrypoint-initdb.d:ro,z
-Volume=/srv/myapp/config/main/nginx.conf:/etc/nginx/nginx.conf:ro,z
+Volume=/srv/myapp/init/main:/docker-entrypoint-initdb.d:ro,Z,U
+Volume=/srv/myapp/config/main/nginx.conf:/etc/nginx/nginx.conf:ro,Z,U
 ```
+
+*If no mount options are specified, `ro,Z,U` is applied automatically.*
 
 ### Automatic Resource Naming
 Resource name directives are automatically injected if not provided, ensuring predictable naming instead of Podman's default `systemd-` prefix.
@@ -245,7 +249,7 @@ Environment=LOG_LEVEL=debug
 nginx/
 ├── quadlets/
 │   └── main.container
-└── config.d/
+└── config/
     └── main/
         └── default.conf
 ```
@@ -258,7 +262,7 @@ Description=Nginx Web Server
 [Container]
 Image=docker.io/library/nginx:{{ nginx_version | default('latest') }}
 PublishPort={{ nginx_port | default(8080) }}:80
-Volume=config.d:/etc/nginx/conf.d:ro,z
+Volume=%config%:/etc/nginx/conf.d
 
 [Service]
 Restart=always
@@ -274,7 +278,7 @@ postgres/
 ├── quadlets/
 │   ├── main.container
 │   └── data.volume
-└── init.d/
+└── init/
     └── main/
         ├── 01-schema.sql
         └── 02-data.sql
@@ -284,8 +288,8 @@ postgres/
 # quadlets/main.container
 [Container]
 Image=docker.io/library/postgres:16
-Volume=data.volume:/var/lib/postgresql/data:z
-Volume=init.d:/docker-entrypoint-initdb.d:ro,z
+Volume=data.volume:/var/lib/postgresql/data
+Volume=%init%:/docker-entrypoint-initdb.d
 Environment=POSTGRES_PASSWORD={{ db_password }}
 
 [Service]
@@ -301,7 +305,7 @@ webapp/
 │   ├── api.container       # API backend
 │   ├── app.network         # Shared network
 │   └── cache.volume        # Shared cache
-└── config.d/
+└── config/
     ├── main/
     │   └── nginx.conf
     └── api/
@@ -313,15 +317,15 @@ webapp/
 [Container]
 Image=docker.io/library/nginx:alpine
 Network=app.network
-Volume=config.d:/etc/nginx/conf.d:ro,z
+Volume=%config%:/etc/nginx/conf.d
 PublishPort=8080:80
 
 # quadlets/api.container
 [Container]
 Image=myregistry/api:{{ api_version }}
 Network=app.network
-Volume=cache.volume:/cache:z
-Volume=config.d:/app/config:ro,z
+Volume=cache.volume:/cache
+Volume=%config%:/app/config
 
 # quadlets/app.network
 [Network]

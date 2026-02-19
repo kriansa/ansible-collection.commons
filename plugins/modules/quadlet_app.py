@@ -25,14 +25,14 @@ description:
     - Deploys Podman Quadlet applications with automatic resource prefixing
     - Templates all files with Jinja2 variables (handled by Ansible)
     - Preprocesses Quadlet files to add application name prefixes
-    - Manages init.d and config.d directories
+    - Manages init and config directories
     - Handles systemd service lifecycle (daemon-reload, start, enable)
     - Ensures idempotent deployments (only updates when files change)
 
 options:
     src:
         description:
-            - Path to the application directory containing quadlets/, init.d/, config.d/
+            - Path to the application directory containing quadlets/, init/, config/
             - Can be relative to playbook directory or absolute path
             - Must contain quadlets/main.container (required)
         required: true
@@ -83,7 +83,7 @@ notes:
     - This module requires root privileges or appropriate systemd user permissions
     - Quadlet files must be in quadlets/ subdirectory
     - At least quadlets/main.container must exist
-    - init.d and config.d subdirectories must end with .container or .pod
+    - init and config subdirectories must end with .container or .pod
     - All files are automatically templated by Ansible before module receives them
 """
 
@@ -172,7 +172,7 @@ class QuadletValidator:
     # Valid quadlet file extensions
     VALID_QUADLET_EXTENSIONS = {".container", ".volume", ".network", ".pod", ".kube"}
 
-    # Valid init.d/config.d subdirectory suffixes
+    # Valid init/config subdirectory suffixes
     VALID_SUBDIR_SUFFIXES = {".container", ".pod"}
 
     def __init__(self, src: str, app_name: str):
@@ -244,14 +244,14 @@ class QuadletValidator:
 
     def validate_init_config_structure(self):
         """
-        Validate init.d and config.d subdirectory structure.
+        Validate init and config subdirectory structure.
 
         Rules:
         1. Subdirectories use the quadlet stem without suffix (e.g., main/, not main.container/)
         2. A corresponding .container or .pod quadlet file must exist
         3. The match must be unambiguous (no both main.container and main.pod)
         """
-        for dir_name in ["init.d", "config.d"]:
+        for dir_name in ["init", "config"]:
             dir_path = os.path.join(self.src, dir_name)
             if not os.path.isdir(dir_path):
                 continue
@@ -351,12 +351,12 @@ class QuadletFileDiscovery:  # pylint: disable=too-few-public-methods
 
     def _discover_init_files(self) -> List[Tuple[str, str, str]]:
         """
-        Discover all init files in init.d/ directory.
+        Discover all init files in init/ directory.
 
         Returns:
             List of (container_dir, relative_path, full_path) tuples
         """
-        init_dir = os.path.join(self.src, "init.d")
+        init_dir = os.path.join(self.src, "init")
         if not os.path.isdir(init_dir):
             return []
 
@@ -381,12 +381,12 @@ class QuadletFileDiscovery:  # pylint: disable=too-few-public-methods
 
     def _discover_config_files(self) -> List[Tuple[str, str, str]]:
         """
-        Discover all config files in config.d/ directory.
+        Discover all config files in config/ directory.
 
         Returns:
             List of (container_dir, relative_path, full_path) tuples
         """
-        config_dir = os.path.join(self.src, "config.d")
+        config_dir = os.path.join(self.src, "config")
         if not os.path.isdir(config_dir):
             return []
 
@@ -415,8 +415,14 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
     Handles preprocessing of quadlet files according to specification rules.
 
     Rule 1: Prefix resource references (Network=, Pod=, Volume=)
-    Rule 2: Replace init.d/config.d volume paths
+    Rule 2: Replace %init%/%config% volume paths
     """
+
+    # Default mount options for %init%/%config% volume mounts
+    DEFAULT_INIT_CONFIG_VOLUME_OPTIONS = "ro,Z,U"
+
+    # Default mount options for named .volume references
+    DEFAULT_NAMED_VOLUME_OPTIONS = "rw,Z,U"
 
     # File extensions that need Rule 1 (prefix resources)
     RULE1_EXTENSIONS = {".container", ".pod", ".kube"}
@@ -549,6 +555,11 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
                 resource_ref = match.group(1)
                 rest = match.group(3) or ""
                 prefixed = f"{self.app_name}--{resource_ref}"
+
+                # Add default options for .volume when none are specified
+                if resource_ref.endswith(".volume") and not rest:
+                    rest = f":{self.DEFAULT_NAMED_VOLUME_OPTIONS}"
+
                 return f"{leading_ws}{directive}={prefixed}{rest}"
         else:
             # For other directives, check if value ends with a quadlet-related extension
@@ -570,11 +581,14 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
 
     def _apply_rule2_replace_paths(self, line: str, container_name: str) -> str:
         """
-        Rule 2: Replace init.d/config.d volume paths.
+        Rule 2: Replace %init%/%config% volume paths.
 
         Transforms:
-            Volume=init.d:... -> Volume={QUADLET_APP_BASE_DIR}/myapp/init/container:...
-            Volume=config.d/sub:... -> Volume={QUADLET_APP_BASE_DIR}/myapp/config/container/sub:...
+            Volume=%init%:...      -> Volume={QUADLET_APP_BASE_DIR}/myapp/init/container:...:ro,Z,U
+            Volume=%config%/sub:...-> Volume={QUADLET_APP_BASE_DIR}/myapp/config/container/sub:...:ro,Z,U
+
+        If no mount options are specified, ro,Z,U is applied automatically.
+        Explicit options are always preserved as-is.
 
         Args:
             line: Single line from quadlet file
@@ -594,25 +608,19 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         # Extract value part (after Volume=)
         value = line_stripped[7:]  # Remove "Volume="
 
-        # Parse Volume directive: Volume=SOURCE:DEST:OPTIONS
-        parts = value.split(":", 1)
-        if len(parts) < 1:
-            return line
-
+        # Parse Volume directive: Volume=SOURCE:DEST[:OPTIONS]
+        parts = value.split(":", 2)  # [source, dest, options?]
         source = parts[0]
-        rest = ":" + parts[1] if len(parts) > 1 else ""
-
-        # Skip if source ends with .volume (already handled by Rule 1)
-        if source.endswith(".volume"):
-            return line
+        dest = parts[1] if len(parts) > 1 else ""
+        options = parts[2] if len(parts) > 2 else None  # None = not specified
 
         # Skip if source is an absolute path
         if source.startswith("/"):
             return line
 
-        # Process init.d paths
-        if source.startswith("init.d"):
-            subpath = source[6:]  # Remove 'init.d' prefix
+        # Process %init% paths
+        if source.startswith("%init%"):
+            subpath = source[6:]  # len("%init%") == 6
             # Remove leading slash if present
             if subpath.startswith("/"):
                 subpath = subpath[1:]
@@ -622,11 +630,12 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             if subpath:
                 new_source += f"/{subpath}"
 
-            return f"{leading_ws}Volume={new_source}{rest}"
+            effective_options = options if options is not None else self.DEFAULT_INIT_CONFIG_VOLUME_OPTIONS
+            return f"{leading_ws}Volume={new_source}:{dest}:{effective_options}"
 
-        # Process config.d paths
-        if source.startswith("config.d"):
-            subpath = source[8:]  # Remove 'config.d' prefix
+        # Process %config% paths
+        if source.startswith("%config%"):
+            subpath = source[8:]  # len("%config%") == 8
             # Remove leading slash if present
             if subpath.startswith("/"):
                 subpath = subpath[1:]
@@ -636,7 +645,8 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             if subpath:
                 new_source += f"/{subpath}"
 
-            return f"{leading_ws}Volume={new_source}{rest}"
+            effective_options = options if options is not None else self.DEFAULT_INIT_CONFIG_VOLUME_OPTIONS
+            return f"{leading_ws}Volume={new_source}:{dest}:{effective_options}"
 
         return line
 

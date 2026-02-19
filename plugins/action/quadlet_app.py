@@ -116,11 +116,11 @@ class ActionModule(ActionBase):  # pylint: disable=too-few-public-methods
         if os.path.isdir(quadlets_dir):
             files_data["quadlets"] = self._process_quadlet_files(quadlets_dir, app_name)
 
-        init_dir = os.path.join(src_path, "init.d")
+        init_dir = os.path.join(src_path, "init")
         if os.path.isdir(init_dir):
             files_data["init"] = self._process_init_config_files(init_dir, app_name)
 
-        config_dir = os.path.join(src_path, "config.d")
+        config_dir = os.path.join(src_path, "config")
         if os.path.isdir(config_dir):
             files_data["config"] = self._process_init_config_files(config_dir, app_name)
 
@@ -145,7 +145,7 @@ class ActionModule(ActionBase):  # pylint: disable=too-few-public-methods
         return quadlet_files
 
     def _process_init_config_files(self, base_dir, app_name):
-        """Process all files in init.d/ or config.d/ directory."""
+        """Process all files in init/ or config/ directory."""
         processed_files = []
 
         for container_dir in sorted(os.listdir(base_dir)):
