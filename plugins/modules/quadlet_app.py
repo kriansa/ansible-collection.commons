@@ -247,15 +247,15 @@ class QuadletValidator:
         Validate init.d and config.d subdirectory structure.
 
         Rules:
-        1. Subdirectories must end with .container or .pod
-        2. Corresponding quadlet file must exist
+        1. Subdirectories use the quadlet stem without suffix (e.g., main/, not main.container/)
+        2. A corresponding .container or .pod quadlet file must exist
+        3. The match must be unambiguous (no both main.container and main.pod)
         """
         for dir_name in ["init.d", "config.d"]:
             dir_path = os.path.join(self.src, dir_name)
             if not os.path.isdir(dir_path):
-                continue  # Optional directories
+                continue
 
-            # Find subdirectories
             try:
                 entries = os.listdir(dir_path)
             except OSError as e:
@@ -264,22 +264,33 @@ class QuadletValidator:
             for entry in entries:
                 entry_path = os.path.join(dir_path, entry)
                 if not os.path.isdir(entry_path):
-                    continue  # Skip files in root of init.d/config.d
+                    continue
 
-                # Check if ends with .container or .pod
-                suffix = Path(entry).suffix
-                if suffix not in self.VALID_SUBDIR_SUFFIXES:
+                # Reject suffixed directories
+                if Path(entry).suffix in self.VALID_SUBDIR_SUFFIXES:
                     raise ValidationError(
                         f"Invalid {dir_name} subdirectory: {entry}. "
-                        f"Subdirectories must end with .container or .pod"
+                        f"Use the quadlet stem without suffix (e.g., {Path(entry).stem}/ instead of {entry}/)"
                     )
 
-                # Check corresponding quadlet exists
-                quadlet_file = os.path.join(self.src, "quadlets", entry)
-                if not os.path.isfile(quadlet_file):
+                # Find matching quadlet files by stem
+                quadlets_dir = os.path.join(self.src, "quadlets")
+                matching = [
+                    f for f in os.listdir(quadlets_dir)
+                    if Path(f).stem == entry and Path(f).suffix in self.VALID_SUBDIR_SUFFIXES
+                ]
+
+                if not matching:
                     raise ValidationError(
                         f"No corresponding quadlet file for {dir_name}/{entry}. "
-                        f"Expected quadlets/{entry}"
+                        f"Expected a file like quadlets/{entry}.container or quadlets/{entry}.pod"
+                    )
+
+                if len(matching) > 1:
+                    raise ValidationError(
+                        f"Ambiguous {dir_name} subdirectory: {entry}. "
+                        f"Multiple matching quadlet files found: {', '.join(sorted(matching))}. "
+                        f"Remove one of the conflicting quadlet files"
                     )
 
 

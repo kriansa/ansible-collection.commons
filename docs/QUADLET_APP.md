@@ -16,14 +16,14 @@ myapp/
 │   ├── data.volume        # Optional: Volumes
 │   └── app.network        # Optional: Networks
 ├── init.d/                # Optional: One-time initialization files
-│   ├── main.container/    # Matches quadlet filename
+│   ├── main/              # Matches quadlet stem (main.container)
 │   │   └── init.sql
-│   └── db.container/
+│   └── db/
 │       └── schema.sql
 └── config.d/              # Optional: Runtime configuration files
-    ├── main.container/
+    ├── main/
     │   └── nginx.conf
-    └── db.container/
+    └── db/
         └── postgresql.conf
 ```
 
@@ -36,12 +36,12 @@ myapp/
   - Contents in these files are automatically templated like `ansible.commons.template`
 
 - **init.d/**: One-time initialization files mounted into containers
-  - Subdirectories must match a quadlet filename (e.g., `main.container`)
+  - Subdirectories use the quadlet stem without suffix (e.g., `main/` for `main.container`)
   - Files are deployed to `/srv/{appname}/init/{container}/`
   - Mounted read-only by default
 
 - **config.d/**: Runtime configuration files mounted into containers
-  - Subdirectories must match a quadlet filename
+  - Subdirectories use the quadlet stem without suffix (e.g., `main/` for `main.container`)
   - Files are deployed to `/srv/{appname}/config/{container}/`
   - Can be mounted read-write or read-only
 
@@ -246,7 +246,7 @@ nginx/
 ├── quadlets/
 │   └── main.container
 └── config.d/
-    └── main.container/
+    └── main/
         └── default.conf
 ```
 
@@ -275,7 +275,7 @@ postgres/
 │   ├── main.container
 │   └── data.volume
 └── init.d/
-    └── main.container/
+    └── main/
         ├── 01-schema.sql
         └── 02-data.sql
 ```
@@ -302,9 +302,9 @@ webapp/
 │   ├── app.network         # Shared network
 │   └── cache.volume        # Shared cache
 └── config.d/
-    ├── main.container/
+    ├── main/
     │   └── nginx.conf
-    └── api.container/
+    └── api/
         └── app.yaml
 ```
 
