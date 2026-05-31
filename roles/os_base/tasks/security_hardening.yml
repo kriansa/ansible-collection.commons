@@ -117,6 +117,144 @@
       ## mechanism can be abused for malicious purposes.
     - { name: dev.tty.legacy_tiocsti, value: "0" }
 
+# kernel.unprivileged_userns_clone is a Debian/Ubuntu out-of-tree kernel patch
+# that was never accepted into mainline Linux. It controls whether unprivileged
+# users can create user namespaces while still allowing root to do so — a more
+# surgical control than the mainline user.max_user_namespaces sysctl, which
+# disables namespaces for everyone and breaks systemd and containers.
+#
+# RHEL-family systems do not ship this sysctl. They rely on SELinux enforcing
+# mode to restrict user namespace abuse at the policy level, which covers the
+# same exploit paths without a dedicated toggle.
+#
+# Restricting this cuts off the primary prerequisite for most nf_tables LPE
+# exploits (CVE-2024-1086, CVE-2023-3390, CVE-2023-32233 and similar), which
+# require an unprivileged user namespace to obtain CAP_NET_ADMIN scoped to a
+# network namespace before attacking the nf_tables subsystem.
+- name: Restrict unprivileged user namespace creation (Debian/Ubuntu only)
+  become: true
+  when: ansible_facts['os_family'] == 'Debian'
+  ansible.posix.sysctl:
+    name: kernel.unprivileged_userns_clone
+    value: "0"
+    sysctl_set: true
+    sysctl_file: /etc/sysctl.d/80-hardened-settings.conf
+
+# Blacklist unused kernel modules to reduce attack surface.
+# Both directives are required per module:
+#   blacklist — prevents automatic loading via hotplug/udev
+#   install /bin/false — replaces the load operation itself, preventing manual
+#                        modprobe and dependency resolution from loading the module
+#
+# Sources: CIS Benchmark (L1/L2), DISA STIG, NSA/CISA Linux Hardening Guide
+- name: Blacklist unused kernel modules
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/99-hardening.conf
+    mode: "0644"
+    content: |
+      # Filesystems — CIS Benchmark 1.1 / DISA STIG
+      # No legitimate server use; attack surface via malicious removable media
+      install cramfs /bin/false
+      blacklist cramfs
+      install freevxfs /bin/false
+      blacklist freevxfs
+      install hfs /bin/false
+      blacklist hfs
+      install hfsplus /bin/false
+      blacklist hfsplus
+      install jffs2 /bin/false
+      blacklist jffs2
+      install squashfs /bin/false
+      blacklist squashfs
+      install udf /bin/false
+      blacklist udf
+      install usb-storage /bin/false
+      blacklist usb-storage
+
+      # Network protocols — CIS Benchmark 3.2 / DISA STIG / NSA/CISA
+      # No legitimate server use; active CVE history
+      install dccp /bin/false
+      blacklist dccp
+      install sctp /bin/false
+      blacklist sctp
+      install rds /bin/false
+      blacklist rds
+      install tipc /bin/false
+      blacklist tipc
+
+      # Legacy and obscure network protocols — NSA/CISA Linux Hardening Guide
+      # Expand remote attack surface with no modern server use case
+      install can /bin/false
+      blacklist can
+      install n-hdlc /bin/false
+      blacklist n-hdlc
+      install ax25 /bin/false
+      blacklist ax25
+      install netrom /bin/false
+      blacklist netrom
+      install x25 /bin/false
+      blacklist x25
+      install rose /bin/false
+      blacklist rose
+      install decnet /bin/false
+      blacklist decnet
+      install econet /bin/false
+      blacklist econet
+      install af_802154 /bin/false
+      blacklist af_802154
+      install ipx /bin/false
+      blacklist ipx
+      install appletalk /bin/false
+      blacklist appletalk
+      install atm /bin/false
+      blacklist atm
+
+      # CVE-2026-31431 (Copy Fail) — algif_aead allows a deterministic 4-byte
+      # write into the page cache of any readable file, including setuid binaries.
+      # On Debian/Ubuntu this entry is sufficient. On RHEL-family systems
+      # algif_aead may be built-in, making this a no-op — covered by the
+      # initcall_blacklist=algif_aead_init arg in the cmdline hardening block.
+      install algif_aead /bin/false
+      blacklist algif_aead
+
+      # CVE-2026-43284 / CVE-2026-43500 (Dirty Frag) — the IPsec ESP and RxRPC
+      # in-place decryption fast paths write decrypted output back over
+      # externally-backed page-cache pages, allowing an attacker to corrupt
+      # setuid binaries in memory. Only blacklist esp4/esp6 if no IPsec tunnels
+      # are in use (WireGuard uses its own wireguard module and is unaffected).
+      install esp4 /bin/false
+      blacklist esp4
+      install esp6 /bin/false
+      blacklist esp6
+      install rxrpc /bin/false
+      blacklist rxrpc
+
+      # Virtual video test driver — no production use; has caused LPE CVEs
+      install vivid /bin/false
+      blacklist vivid
+
+# Wireless and peripheral modules are only blacklisted on VMs. On bare metal
+# hosts these interfaces may exist as real hardware and are left to the
+# operator. FireWire and Thunderbolt DMA attacks are mitigated on bare metal
+# by the IOMMU settings applied separately.
+- name: Blacklist wireless and peripheral modules on VMs
+  become: true
+  when: ansible_facts.virtualization_role != 'host'
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/99-hardening-peripherals.conf
+    mode: "0644"
+    content: |
+      # Wireless and peripherals — CIS Benchmark 3.1 / DISA STIG
+      install bluetooth /bin/false
+      blacklist bluetooth
+      install btusb /bin/false
+      blacklist btusb
+      install firewire-core /bin/false
+      blacklist firewire-core
+      install thunderbolt /bin/false
+      blacklist thunderbolt
+
 - name: Check if cmdline is hardened
   ansible.builtin.command: grep -q "slab_nomerge" /proc/cmdline
   changed_when: os_base_cmdline_hardened.rc == 0
@@ -164,6 +302,17 @@
 
     # Always enable Kernel Page Table Isolation, even if the CPU claims it is safe from Meltdown.
     - pti=on
+
+    # CVE-2026-31431 (Copy Fail): on RHEL-family systems algif_aead is often
+    # compiled built-in (CONFIG_CRYPTO_USER_API_AEAD=y). When built-in, the module
+    # never goes through modprobe, so the modprobe.d blacklist silently does nothing
+    # and the system remains vulnerable despite appearing to apply the fix.
+    #
+    # initcall_blacklist prevents the kernel from running algif_aead_init at boot,
+    # disabling the subsystem even when compiled in. On Debian/Ubuntu where
+    # algif_aead is a loadable module, this arg is a harmless no-op — both
+    # the modprobe.d entry and this cmdline arg can coexist safely across distros.
+    - initcall_blacklist=algif_aead_init
 
 - name: Hardens kernel command line arguments for bare metal
   become: true

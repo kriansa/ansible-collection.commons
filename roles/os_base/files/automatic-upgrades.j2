@@ -1,3 +1,18 @@
+Unattended-Upgrade::Allowed-Origins {
+{% if automatic_update_type == 'security' %}
+  "${distro_id}:${distro_codename}-security";
+  "${distro_id}ESMApps:${distro_codename}-apps-security";
+  "${distro_id}ESM:${distro_codename}-infra-security";
+{% else %}
+  "${distro_id}:${distro_codename}";
+  "${distro_id}:${distro_codename}-security";
+  "${distro_id}:${distro_codename}-updates";
+  "${distro_id}:${distro_codename}-backports";
+  "${distro_id}ESMApps:${distro_codename}-apps-security";
+  "${distro_id}ESM:${distro_codename}-infra-security";
+{% endif %}
+};
+
 APT::Periodic {
   // Set minimum age of a package file. If a file is younger it
   // will not be deleted (0=disable). Useful to prevent races

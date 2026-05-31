@@ -5,6 +5,7 @@
 - ansible.builtin.import_tasks: remove_tuned.yml
 - ansible.builtin.import_tasks: update_packages.yml
 - ansible.builtin.import_tasks: install_epel.yml
+  when: ansible_facts.distribution != 'Fedora'
 - ansible.builtin.import_tasks: install_dnf_automatic.yml
 - ansible.builtin.import_tasks: normalize_networks.yml
 - ansible.builtin.import_tasks: configure_resolved.yml

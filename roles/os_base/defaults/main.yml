@@ -34,3 +34,4 @@ automatic_update_download_time: 06:00 UTC
 automatic_update_start_time: 06:30 UTC
 automatic_update_reboot: yes
 automatic_update_reboot_time: 07:00 UTC
+automatic_update_type: security  # security or all

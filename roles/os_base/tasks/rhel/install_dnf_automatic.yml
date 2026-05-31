@@ -9,18 +9,43 @@
   become: true
   when: automatic_update_enabled
   block:
-    - name: Install dnf-automatic
+    - name: Check if DNF5 is in use
+      ansible.builtin.stat:
+        path: /usr/bin/dnf5
+      register: dnf5_stat
+
+    - name: Set DNF version fact
+      ansible.builtin.set_fact:
+        dnf5: "{{ dnf5_stat.stat.exists }}"
+
+    - name: Install dnf-automatic (DNF 4)
       ansible.builtin.dnf:
         name: dnf-automatic
         state: present
+      when: not dnf5
 
-    - name: Ensure dnf-automatic only installs security updates
+    - name: Install dnf5-plugin-automatic (DNF 5)
+      ansible.builtin.dnf:
+        name: dnf5-plugin-automatic
+        state: present
+      when: dnf5
+
+    - name: Copy default dnf-automatic config if not present (DNF 5)
+      ansible.builtin.copy:
+        src: /usr/share/dnf5/dnf5-plugins/automatic.conf
+        dest: /etc/dnf/automatic.conf
+        remote_src: true
+        force: false
+        mode: "0644"
+      when: dnf5
+
+    - name: Configure dnf-automatic upgrade type
       ansible.builtin.lineinfile:
         path: /etc/dnf/automatic.conf
-        line: upgrade_type = security
+        line: "upgrade_type = {{ 'default' if automatic_update_type == 'all' else automatic_update_type }}"
         regexp: "^upgrade_type ="
 
-    - name: Create drop-in folders for applying timer overrides
+    - name: Create drop-in folders for applying timer overrides (DNF 4)
       ansible.builtin.file:
         path: /etc/systemd/system/{{ item }}.timer.d
         state: directory
@@ -28,8 +53,9 @@
       loop:
         - dnf-automatic-download
         - dnf-automatic-install
+      when: not dnf5
 
-    - name: Override dnf timers
+    - name: Override dnf timers (DNF 4)
       ansible.builtin.template:
         src: files/{{ item }}.timer.j2
         dest: /etc/systemd/system/{{ item }}.timer.d/override.conf
@@ -37,6 +63,21 @@
       loop:
         - dnf-automatic-download
         - dnf-automatic-install
+      when: not dnf5
+
+    - name: Create drop-in folder for dnf-automatic timer (DNF 5)
+      ansible.builtin.file:
+        path: /etc/systemd/system/dnf-automatic.timer.d
+        state: directory
+        mode: "0755"
+      when: dnf5
+
+    - name: Override dnf-automatic timer (DNF 5)
+      ansible.builtin.template:
+        src: files/dnf-automatic.timer.j2
+        dest: /etc/systemd/system/dnf-automatic.timer.d/override.conf
+        mode: "0644"
+      when: dnf5
 
     - name: Setup automatic reboots timer
       ansible.builtin.template:
@@ -51,13 +92,20 @@
       ansible.builtin.systemd:
         daemon_reload: true
 
-    - name: Configure automatic update timers
+    - name: Configure automatic update timers (DNF 4)
       ansible.builtin.systemd:
         name: "{{ item }}.timer"
         enabled: "{{ automatic_update_enabled }}"
       loop:
         - dnf-automatic-download
         - dnf-automatic-install
+      when: not dnf5
+
+    - name: Configure automatic update timer (DNF 5)
+      ansible.builtin.systemd:
+        name: dnf-automatic.timer
+        enabled: "{{ automatic_update_enabled }}"
+      when: dnf5
 
     - name: Configure automatic reboot timer
       ansible.builtin.systemd:

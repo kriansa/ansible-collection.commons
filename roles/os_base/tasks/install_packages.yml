@@ -36,9 +36,16 @@
     name: linux-firmware
     state: "{{ 'latest' if ansible_facts.virtualization_role == 'host' else 'absent' }}"
 
+- name: Check if fwupd is installed
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/fwupd.service
+  register: fwupd_unit
+
 - name: Disable fwupd on guests
   become: true
-  when: ansible_facts.virtualization_role == "guest"
+  when:
+    - ansible_facts.virtualization_role == "guest"
+    - fwupd_unit.stat.exists
   ansible.builtin.systemd:
     name: "{{ item }}"
     enabled: false
