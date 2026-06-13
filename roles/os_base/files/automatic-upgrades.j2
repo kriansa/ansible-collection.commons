@@ -40,6 +40,6 @@ Unattended-Upgrade {
 
   // Enable automatic reboot if needed
   Automatic-Reboot "{{ 'true' if automatic_update_reboot else 'false' }}";
-  Automatic-Reboot-Time "{{ automatic_update_reboot_time }}";
+  Automatic-Reboot-Time "{{ debian_automatic_update_reboot_time }}";
   Automatic-Reboot-WithUsers "true";
 };

@@ -30,8 +30,10 @@ reboot_if_needed: yes
 
 # Automatic updates (timezones available at `timedatectl list-timezones`)
 automatic_update_enabled: yes
-automatic_update_download_time: 06:00 UTC
-automatic_update_start_time: 06:30 UTC
 automatic_update_reboot: yes
-automatic_update_reboot_time: 07:00 UTC
+automatic_update_schedule: "*-*-* 08:30:00 UTC"
 automatic_update_type: security  # security or all
+
+# Debian only: when packages are pre-downloaded (apt-daily), as a full systemd OnCalendar expression.
+debian_automatic_update_download_schedule: "*-*-* 07:00:00 UTC"
+debian_automatic_update_reboot_time: 08:30 UTC
