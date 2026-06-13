@@ -314,6 +314,9 @@
     # the modprobe.d entry and this cmdline arg can coexist safely across distros.
     - initcall_blacklist=algif_aead_init
 
+# These settings are incompatible with low-latency PCIe passthrough (such as GPU passthrough)
+# You can disable these security options when you don't have hostile tenant VMs (security is always
+# a trade-off anyway)
 - name: Hardens kernel command line arguments for bare metal
   become: true
   notify: Reboot
@@ -321,8 +324,8 @@
   changed_when: true
   when: ansible_facts.virtualization_role == "host" and cmdline_hardened.rc != 0
   loop:
-    # Enables IOMMU to prevent DMA attacks.
-    - intel_iommu=on amd_iommu=force_isolation
+    # Enforce AMD IOMMU isolation
+    - amd_iommu=force_isolation
 
     # Disable the busmaster bit on all PCI bridges during very
     # early boot to avoid holes in IOMMU.
