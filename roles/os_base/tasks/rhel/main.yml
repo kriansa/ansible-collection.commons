@@ -2,7 +2,10 @@
 - ansible.builtin.import_tasks: clean_alma_cloudimage.yml
 - ansible.builtin.import_tasks: remove_packages.yml
 - ansible.builtin.import_tasks: remove_cron.yml
-- ansible.builtin.import_tasks: setup_timesync.yml
+# Disabled: systemd-timesyncd is not packaged for Fedora at all, and on RHEL it
+# is only available via systemd-extras — best-effort at best and likely not
+# officially supported. chrony stays the NTP client on the RHEL family.
+# - ansible.builtin.import_tasks: setup_timesync.yml
 - ansible.builtin.import_tasks: remove_tuned.yml
 - ansible.builtin.import_tasks: update_packages.yml
 - ansible.builtin.import_tasks: install_epel.yml
