@@ -27,3 +27,4 @@
 - ansible.builtin.import_tasks: security_hardening.yml
 - ansible.builtin.import_tasks: performance_tuning.yml
 - ansible.builtin.import_tasks: remove_cloudinit.yml
+  when: '"cloud-init" in ansible_facts.packages'
