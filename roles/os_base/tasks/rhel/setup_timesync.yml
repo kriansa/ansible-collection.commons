@@ -20,6 +20,18 @@
     enabled: true
     state: started
 
+# NetworkManager's internal DHCP client does not feed DHCP-advertised NTP
+# servers to systemd-timesyncd (only systemd-networkd does), so without this
+# dispatcher timesyncd only ever uses its FallbackNTP.
+- name: Feed DHCP-advertised NTP server to systemd-timesyncd via NetworkManager
+  become: true
+  ansible.builtin.copy:
+    src: 50-timesyncd-dhcp-ntp
+    dest: /etc/NetworkManager/dispatcher.d/50-timesyncd-dhcp-ntp
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Remove chrony user
   become: true
   ansible.builtin.user:
@@ -35,8 +47,5 @@
 - name: Remove old logs
   become: true
   ansible.builtin.file:
-    path: /var/log/{{ item }}
+    path: /var/log/chrony
     state: absent
-  loop:
-    - cron
-    - chrony
