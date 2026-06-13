@@ -21,6 +21,7 @@
 # Generic linux packages
 - ansible.builtin.import_tasks: create_user.yml
 - ansible.builtin.import_tasks: install_packages.yml
+- ansible.builtin.import_tasks: qemu_guest_agent.yml
 - ansible.builtin.import_tasks: configure_journal.yml
 - ansible.builtin.import_tasks: grub_tuning.yml
 - ansible.builtin.import_tasks: security_hardening.yml

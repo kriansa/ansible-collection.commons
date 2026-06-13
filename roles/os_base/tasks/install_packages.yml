@@ -8,28 +8,6 @@
       - sudo
       - acl
 
-- name: Remove qemu-guest-agent for non-QEMU systems
-  when: ansible_facts.chassis_vendor != "QEMU"
-  become: true
-  ansible.builtin.package:
-    name: qemu-guest-agent
-    state: absent
-
-- name: Install qemu-guest-agent for QEMU systems
-  become: true
-  when: ansible_facts.chassis_vendor == "QEMU"
-  notify: Restart qemu-guest-agent
-  ansible.builtin.package:
-    name: qemu-guest-agent
-    state: present
-
-- name: Enable qemu-guest-agent
-  become: true
-  when: ansible_facts.chassis_vendor == "QEMU"
-  ansible.builtin.systemd:
-    name: qemu-guest-agent
-    enabled: true
-
 - name: Install linux-firmware on bare metal hosts
   become: true
   ansible.builtin.package:

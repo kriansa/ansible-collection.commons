@@ -38,3 +38,4 @@ issues: https://github.com/kriansa/ansible-collection.commons/issues
 # Collections that this collection requires to be installed for it to be usable.
 dependencies:
   ansible.posix: "*"
+  community.general: "*"

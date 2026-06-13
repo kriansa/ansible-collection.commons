@@ -1,0 +1,55 @@
+---
+# QEMU guest agent: install on QEMU guests, remove elsewhere, plus an SELinux
+# fix for its fsfreeze hook log.
+
+- name: Remove qemu-guest-agent for non-QEMU systems
+  when: ansible_facts.chassis_vendor != "QEMU"
+  become: true
+  ansible.builtin.package:
+    name: qemu-guest-agent
+    state: absent
+
+- name: Install qemu-guest-agent for QEMU systems
+  become: true
+  when: ansible_facts.chassis_vendor == "QEMU"
+  notify: Restart qemu-guest-agent
+  ansible.builtin.package:
+    name: qemu-guest-agent
+    state: present
+
+- name: Enable qemu-guest-agent
+  become: true
+  when: ansible_facts.chassis_vendor == "QEMU"
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+
+# The shipped fsfreeze hook logs to /var/log/qga-fsfreeze-hook.log (generic
+# var_log_t), but the agent runs as virt_qemu_ga_t and may only write
+# virt_qemu_ga_log_t. Every backup-time freeze/thaw therefore raises an AVC
+# denial; it is harmless (the hook falls back to syslog) but noisy. Map the path
+# to the correct type. RHEL fixed this upstream by moving the log under
+# /var/log/qemu-ga/; Fedora has not.
+- name: Confine the qemu-guest-agent fsfreeze-hook log (SELinux)
+  become: true
+  when:
+    - ansible_facts.distribution == "Fedora"
+    - ansible_facts.chassis_vendor == "QEMU"
+    - ansible_facts.selinux.status == "enabled"
+  block:
+    - name: Install SELinux policy management tooling
+      ansible.builtin.package:
+        name: policycoreutils-python-utils
+        state: present
+
+    - name: Map the fsfreeze-hook log to the qemu-ga log type
+      community.general.sefcontext:
+        target: '/var/log/qga-fsfreeze-hook\.log'
+        setype: virt_qemu_ga_log_t
+        state: present
+
+    - name: Relabel the fsfreeze-hook log to match policy
+      ansible.builtin.command:
+        cmd: restorecon -i -v /var/log/qga-fsfreeze-hook.log
+      register: os_base_qga_fsfreeze_restorecon
+      changed_when: "'Relabeled' in os_base_qga_fsfreeze_restorecon.stdout"
