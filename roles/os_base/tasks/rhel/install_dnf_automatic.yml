@@ -76,4 +76,4 @@
     - name: Enable the dnf-automatic timer
       ansible.builtin.systemd:
         name: dnf-automatic.timer
-        enabled: "{{ automatic_update_enabled }}"
+        enabled: true
