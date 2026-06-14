@@ -1,0 +1,15 @@
+---
+# chrony already picks up DHCP-advertised NTP servers: NetworkManager's dispatcher
+# (/usr/lib/NetworkManager/dispatcher.d/20-chrony-dhcp) writes them into chrony's
+# `sourcedir /run/chrony-dhcp`, appending $NTPSERVERARGS (default "iburst") to each
+# generated `server` line and reading it from /etc/sysconfig/network. Adding "prefer"
+# makes chrony favour the DHCP/LAN server over the public pool, while keeping the pool
+# as a fallback and falseticker quorum. Takes effect on the next DHCP event / reboot.
+- name: Prefer DHCP-advertised NTP servers over the public pool
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/sysconfig/network
+    regexp: '^NTPSERVERARGS='
+    line: 'NTPSERVERARGS="iburst prefer"'
+    create: true
+    mode: "0644"

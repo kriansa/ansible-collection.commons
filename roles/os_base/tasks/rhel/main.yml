@@ -6,6 +6,7 @@
 # is only available via systemd-extras — best-effort at best and likely not
 # officially supported. chrony stays the NTP client on the RHEL family.
 # - ansible.builtin.import_tasks: setup_timesync.yml
+- ansible.builtin.import_tasks: configure_chrony.yml
 - ansible.builtin.import_tasks: remove_tuned.yml
 - ansible.builtin.import_tasks: update_packages.yml
 - ansible.builtin.import_tasks: install_epel.yml
