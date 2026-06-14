@@ -25,6 +25,10 @@ install_cloudwatch: yes
 # Remove OS bloat packages not required for servers
 remove_bloat: yes
 
+# Install linux-firmware. Defaults to bare-metal hosts only, since guests rarely need firmware
+# blobs. Set to true on guests with passed-through hardware that needs firmware (e.g. a GPU).
+install_linux_firmware: "{{ ansible_facts.virtualization_role == 'host' }}"
+
 # Should we reboot after the playbook has run if required
 reboot_if_needed: yes
 
