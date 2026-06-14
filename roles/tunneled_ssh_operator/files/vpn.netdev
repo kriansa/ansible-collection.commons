@@ -10,5 +10,5 @@ PrivateKey={{ vpn_private_key }}
 PresharedKey={{ vpn_endpoint_preshared_key }}
 PublicKey={{ vpn_endpoint_public_key }}
 Endpoint={{ vpn_endpoint }}
-AllowedIPs=0.0.0.0/0
+AllowedIPs={{ vpn_gateway }}/32{% for cidr in vpn_routes %},{{cidr}}{% endfor %}
 PersistentKeepalive=20
