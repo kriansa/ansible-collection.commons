@@ -5,6 +5,12 @@ hostname: myserver
 # Define the default timezone
 timezone: UTC
 
+# Explicit NTP servers for chrony (RHEL family). Useful for statically-addressed hosts that don't
+# receive NTP via DHCP. Each is added with "iburst prefer" via a chrony sourcedir drop-in, so
+# chrony favours them over the default pool (which stays as a fallback). Empty = rely on the pool
+# and any DHCP-advertised servers.
+ntp_servers: []
+
 # Admin user name. By default, we disable root user and turn this one into an admin which can get
 # super user access by using `sudo`
 username: admin

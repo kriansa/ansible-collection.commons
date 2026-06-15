@@ -13,3 +13,36 @@
     line: 'NTPSERVERARGS="iburst prefer"'
     create: true
     mode: "0644"
+
+# Statically-addressed hosts receive no DHCP-advertised NTP, so allow pinning explicit servers.
+# chrony only reads directories named in chrony.conf, so we enable a persistent sourcedir with a
+# single stable line and keep the actual server entries in a drop-in (mirrors the DHCP mechanism:
+# sourcedir + .sources files). Servers are added with "prefer" so chrony favours them over the
+# pool, which stays as a fallback. chronyd is restarted so it picks up the new sourcedir/sources.
+- name: Pin explicit NTP servers for hosts without DHCP-advertised NTP
+  become: true
+  when: ntp_servers | length > 0
+  block:
+    - name: Enable a persistent chrony sourcedir
+      notify: Restart chrony
+      ansible.builtin.lineinfile:
+        path: /etc/chrony.conf
+        line: sourcedir /etc/chrony/sources.d
+        regexp: '^sourcedir /etc/chrony/sources\.d$'
+
+    - name: Create the chrony sources.d directory
+      ansible.builtin.file:
+        path: /etc/chrony/sources.d
+        state: directory
+        mode: "0755"
+
+    - name: Write the explicit NTP servers drop-in
+      notify: Restart chrony
+      ansible.builtin.copy:
+        dest: /etc/chrony/sources.d/ansible.sources
+        mode: "0644"
+        content: |
+          # Managed by kriansa.commons (ntp_servers): explicit servers, preferred over the pool.
+          {% for server in ntp_servers %}
+          server {{ server }} iburst prefer
+          {% endfor %}
