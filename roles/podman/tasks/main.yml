@@ -1,4 +1,21 @@
 ---
+# netavark (podman's default network backend) shells out to `nft` for firewall/NAT rules.
+# RHEL-family hosts typically already have this via base OS defaults (firewalld); Debian
+# doesn't ship it by default at all, so container networking silently fails without it.
+- name: Install nftables (Debian)
+  become: true
+  when: ansible_facts['os_family'] == 'Debian'
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Install nftables (RHEL)
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+  ansible.builtin.dnf:
+    name: nftables
+    state: present
+
 - name: Install podman
   become: true
   notify: Restart podman.socket
