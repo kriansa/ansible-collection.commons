@@ -1,0 +1,42 @@
+---
+# Cron is replaced by systemd timer units.
+# Uses the concrete per-family module rather than ansible.builtin.package: on this collection's
+# Debian targets, the generic dispatcher errors trying to detect a dnf backend that doesn't apply
+# here at all, even though pkg_mgr correctly resolves to apt.
+- name: Remove anacron (Debian)
+  become: true
+  when: ansible_facts['os_family'] == 'Debian'
+  ansible.builtin.apt:
+    state: absent
+    purge: true
+    name:
+      - anacron
+      - cron
+      - cron-daemon-common
+
+- name: Remove anacron (RHEL)
+  become: true
+  when: ansible_facts['os_family'] == 'RedHat'
+  ansible.builtin.dnf:
+    state: absent
+    name:
+      - anacron
+      - cronie
+      - crontabs
+
+- name: Remove cron folders
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/anacrontab
+    - /etc/crontab
+    - /etc/cron.d
+    - /etc/cron.hourly
+    - /etc/cron.daily
+    - /etc/cron.weekly
+    - /etc/cron.monthly
+    - /etc/cron.yearly
+    - /var/log/cron
+    - /var/log/cron.log

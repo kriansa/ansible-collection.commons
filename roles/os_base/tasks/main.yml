@@ -18,7 +18,8 @@
   name: Include tasks for amazon linux
   ansible.builtin.include_tasks: amazon/main.yml
 
-# Generic linux packages
+# Generic linux tasks
+- ansible.builtin.import_tasks: remove_cron.yml
 - ansible.builtin.import_tasks: create_user.yml
 - ansible.builtin.import_tasks: install_packages.yml
 - ansible.builtin.import_tasks: qemu_guest_agent.yml
