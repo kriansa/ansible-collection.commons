@@ -4,9 +4,12 @@
   ansible.builtin.stat: path=/etc/motd checksum_algorithm=md5
   register: motd_stat
 
+# checksum is only present for a regular file with readable content — absent when the path is
+# missing, a directory, or (the common modern-Debian case) a symlink to a dynamically-generated
+# target such as /run/motd, which stat doesn't follow by default.
 - name: clear default motd message
   become: true
-  when: motd_stat.stat.checksum == "9830e3dbb6a828f2cc824db8db0ceaf7"
+  when: motd_stat.stat.checksum is defined and motd_stat.stat.checksum == "9830e3dbb6a828f2cc824db8db0ceaf7"
   ansible.builtin.copy: dest=/etc/motd content=""
 
 - name: use a shorter motd uname
