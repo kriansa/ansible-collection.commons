@@ -41,29 +41,30 @@
 # See: https://madaidans-insecurities.github.io/guides/linux-hardening.html
 # See: https://tails.net/contribute/design/kernel_hardening/
 # See: https://kernsec.org/wiki/index.php/Kernel_Self_Protection_Project/Recommended_Settings
-- name: Hardens sysctl variables
-  become: true
-  ansible.posix.sysctl:
-    name: "{{ item.name }}"
-    value: "{{ item.value }}"
-    sysctl_set: true
-    sysctl_file: /etc/sysctl.d/80-hardened-settings.conf
-  loop:
+- name: Check which hardened sysctl knobs exist on this kernel
+  ansible.builtin.stat:
+    path: "/proc/sys/{{ item.name | replace('.', '/') }}"
+  register: os_base_sysctl_checks
+  loop: "{{ os_base_hardened_sysctls }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    os_base_hardened_sysctls:
       ## Hides kernel addresses in various files in /proc.
       ## Kernel addresses can be very useful in certain exploits.
       ##
       ## https://kernsec.org/wiki/index.php/Bug_Classes/Kernel_pointer_leak
-    - { name: kernel.kptr_restrict, value: "1" }
+      - { name: kernel.kptr_restrict, value: "1" }
 
       # Panics whenever an oops or bug is encountered.
-    - { name: kernel.panic_on_oops, value: "1" }
+      - { name: kernel.panic_on_oops, value: "1" }
 
       # Hardens the BPF JIT compiler and restricts it to root.
-    - { name: net.core.bpf_jit_harden, value: "2" }
-    - { name: kernel.unprivileged_bpf_disabled, value: "1" }
+      - { name: net.core.bpf_jit_harden, value: "2" }
+      - { name: kernel.unprivileged_bpf_disabled, value: "1" }
 
       # Randomize the addresses for mmap base, heap, stack, and VDSO pages
-    - { name: kernel.randomize_va_space, value: "2" }
+      - { name: kernel.randomize_va_space, value: "2" }
 
       ## Restrict loading TTY line disciplines to CAP_SYS_MODULE to prevent
       ## unprivileged attackers from loading vulnerable line disciplines
@@ -71,34 +72,34 @@
       ## such as https://a13xp0p0v.github.io/2017/03/24/CVE-2017-2636.html
       ##
       ## https://lkml.org/lkml/2019/4/15/890
-    - { name: dev.tty.ldisc_autoload, value: "0" }
+      - { name: dev.tty.ldisc_autoload, value: "0" }
 
       ## Restrict the userfaultfd() syscall to root as it can make heap sprays
       ## easier.
       ##
       ## https://duasynt.com/blog/linux-kernel-heap-spray
-    - { name: vm.unprivileged_userfaultfd, value: "0" }
+      - { name: vm.unprivileged_userfaultfd, value: "0" }
 
       ## Disallow kernel profiling by users without CAP_SYS_ADMIN
       ## https://www.kernel.org/doc/Documentation/sysctl/kernel.txt
-    - { name: kernel.perf_event_paranoid, value: "3" }
+      - { name: kernel.perf_event_paranoid, value: "3" }
 
       # kexec is a system call that is used to boot another kernel during runtime. This functionality
       # can be abused to load a malicious kernel and gain arbitrary code execution in kernel mode, so
       # this sysctl disables it.
-    - { name: kernel.kexec_load_disabled, value: "1" }
+      - { name: kernel.kexec_load_disabled, value: "1" }
 
       ## Disable SysRq key
-    - { name: kernel.sysrq, value: "0" }
+      - { name: kernel.sysrq, value: "0" }
 
       ## Restricts the kernel log to root only.
-    - { name: kernel.dmesg_restrict, value: "1" }
+      - { name: kernel.dmesg_restrict, value: "1" }
 
       ## Don't allow writes to files that we don't own
       ## in world writable sticky directories, unless
       ## they are owned by the owner of the directory.
-    - { name: fs.protected_fifos, value: "2" }
-    - { name: fs.protected_regular, value: "2" }
+      - { name: fs.protected_fifos, value: "2" }
+      - { name: fs.protected_regular, value: "2" }
 
       ## Only allow symlinks to be followed when outside of
       ## a world-writable sticky directory, or when the owner
@@ -109,13 +110,29 @@
       ## have read/write access to the source file.
       ##
       ## These prevent many TOCTOU races.
-    - { name: fs.protected_symlinks, value: "1" }
-    - { name: fs.protected_hardlinks, value: "1" }
+      - { name: fs.protected_symlinks, value: "1" }
+      - { name: fs.protected_hardlinks, value: "1" }
 
       ## TIOCSTI is an ioctl system call in the Linux kernel that lets a process simulate terminal
       ## input by pushing characters into the input queue for a controlling TTY. This legacy
       ## mechanism can be abused for malicious purposes.
-    - { name: dev.tty.legacy_tiocsti, value: "0" }
+      - { name: dev.tty.legacy_tiocsti, value: "0" }
+
+# Some of the sysctls above don't exist on every kernel (e.g. vm.unprivileged_userfaultfd
+# needs CONFIG_USERFAULTFD, kernel.kexec_load_disabled needs CONFIG_KEXEC — both commonly
+# trimmed from embedded/SBC kernel configs), so only set the ones that are actually present
+# rather than assuming a generic server kernel.
+- name: Hardens sysctl variables
+  become: true
+  when: item.stat.exists
+  ansible.posix.sysctl:
+    name: "{{ item.item.name }}"
+    value: "{{ item.item.value }}"
+    sysctl_set: true
+    sysctl_file: /etc/sysctl.d/80-hardened-settings.conf
+  loop: "{{ os_base_sysctl_checks.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
 
 # kernel.unprivileged_userns_clone is a Debian/Ubuntu out-of-tree kernel patch
 # that was never accepted into mainline Linux. It controls whether unprivileged
@@ -131,9 +148,17 @@
 # exploits (CVE-2024-1086, CVE-2023-3390, CVE-2023-32233 and similar), which
 # require an unprivileged user namespace to obtain CAP_NET_ADMIN scoped to a
 # network namespace before attacking the nf_tables subsystem.
+- name: Check for kernel.unprivileged_userns_clone sysctl
+  ansible.builtin.stat:
+    path: /proc/sys/kernel/unprivileged_userns_clone
+  register: os_base_userns_clone_check
+  when: ansible_facts['os_family'] == 'Debian'
+
+# Only present on kernels carrying Debian/Ubuntu's own out-of-tree patch — not guaranteed on
+# other Debian-derived distros with their own kernel builds (e.g. Armbian).
 - name: Restrict unprivileged user namespace creation (Debian/Ubuntu only)
   become: true
-  when: ansible_facts['os_family'] == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian' and os_base_userns_clone_check.stat.exists
   ansible.posix.sysctl:
     name: kernel.unprivileged_userns_clone
     value: "0"
@@ -262,87 +287,83 @@
   register: os_base_cmdline_hardened
 
 - name: Hardens kernel command line arguments
-  become: true
   when: not os_base_cmdline_hardened.changed
-  notify: Reboot
-  ansible.builtin.command: grubby --update-kernel=ALL --args="{{ item }}"
-  changed_when: true
-  loop:
-    # Disables the merging of slabs of similar sizes.
-    # Sometimes a slab can be used in a vulnerable way which an attacker can exploit.
-    - slab_nomerge
+  ansible.builtin.include_tasks: set_kernel_args.yml
+  vars:
+    os_base_kernel_args:
+      # Disables the merging of slabs of similar sizes.
+      # Sometimes a slab can be used in a vulnerable way which an attacker can exploit.
+      - slab_nomerge
 
-    # This option randomises page allocator freelists, improving security by making page allocations
-    # less predictable. This also improves performance.
-    - page_alloc.shuffle=1
+      # This option randomises page allocator freelists, improving security by making page allocations
+      # less predictable. This also improves performance.
+      - page_alloc.shuffle=1
 
-    # Zero memory at allocation and free time.
-    - init_on_free=1 init_on_alloc=1
+      # Zero memory at allocation and free time.
+      - init_on_free=1 init_on_alloc=1
 
-    # Mostly useful for systems with ECC memory, setting mce to 0 will cause the kernel to panic on
-    # any uncorrectable errors detected by the machine check exception system. Corrected errors will
-    # just be logged. The default is mce=1, which will SIGBUS on many uncorrected errors.
-    # Unfortunately this means malicious processes which try to exploit hardware bugginess (such as
-    # rowhammer) will be able to try over and over, suffering only a SIGBUS at failure. Setting
-    # mce=0 should have no impact. Any hardware which regularly triggers a memory-based MCE is
-    # unlikely to even boot, and the default is 1 only for long-lived servers.
-    - mce=0
+      # Mostly useful for systems with ECC memory, setting mce to 0 will cause the kernel to panic on
+      # any uncorrectable errors detected by the machine check exception system. Corrected errors will
+      # just be logged. The default is mce=1, which will SIGBUS on many uncorrected errors.
+      # Unfortunately this means malicious processes which try to exploit hardware bugginess (such as
+      # rowhammer) will be able to try over and over, suffering only a SIGBUS at failure. Setting
+      # mce=0 should have no impact. Any hardware which regularly triggers a memory-based MCE is
+      # unlikely to even boot, and the default is 1 only for long-lived servers.
+      - mce=0
 
-    # Vsyscalls are obsolete, are at fixed addresses and are a target for ROP.
-    - vsyscall=none
+      # Vsyscalls are obsolete, are at fixed addresses and are a target for ROP.
+      - vsyscall=none
 
-    # Enables randomisation of the kernel stack offset on syscall entries (introduced in kernel 5.13).
-    # https://lkml.org/lkml/2019/3/18/246
-    - randomize_kstack_offset=on
+      # Enables randomisation of the kernel stack offset on syscall entries (introduced in kernel 5.13).
+      # https://lkml.org/lkml/2019/3/18/246
+      - randomize_kstack_offset=on
 
-    # Restrict access to debugfs since it can contain a lot of sensitive information.
-    # https://lkml.org/lkml/2020/7/16/122
-    # https://github.com/torvalds/linux/blob/fb1201aececc59990b75ef59fca93ae4aa1e1444/Documentation/admin-guide/kernel-parameters.txt#L835-L848
-    - debugfs=off
+      # Restrict access to debugfs since it can contain a lot of sensitive information.
+      # https://lkml.org/lkml/2020/7/16/122
+      # https://github.com/torvalds/linux/blob/fb1201aececc59990b75ef59fca93ae4aa1e1444/Documentation/admin-guide/kernel-parameters.txt#L835-L848
+      - debugfs=off
 
-    # Always enable Kernel Page Table Isolation, even if the CPU claims it is safe from Meltdown.
-    - pti=on
+      # Always enable Kernel Page Table Isolation, even if the CPU claims it is safe from Meltdown.
+      - pti=on
 
-    # CVE-2026-31431 (Copy Fail): on RHEL-family systems algif_aead is often
-    # compiled built-in (CONFIG_CRYPTO_USER_API_AEAD=y). When built-in, the module
-    # never goes through modprobe, so the modprobe.d blacklist silently does nothing
-    # and the system remains vulnerable despite appearing to apply the fix.
-    #
-    # initcall_blacklist prevents the kernel from running algif_aead_init at boot,
-    # disabling the subsystem even when compiled in. On Debian/Ubuntu where
-    # algif_aead is a loadable module, this arg is a harmless no-op — both
-    # the modprobe.d entry and this cmdline arg can coexist safely across distros.
-    - initcall_blacklist=algif_aead_init
+      # CVE-2026-31431 (Copy Fail): on RHEL-family systems algif_aead is often
+      # compiled built-in (CONFIG_CRYPTO_USER_API_AEAD=y). When built-in, the module
+      # never goes through modprobe, so the modprobe.d blacklist silently does nothing
+      # and the system remains vulnerable despite appearing to apply the fix.
+      #
+      # initcall_blacklist prevents the kernel from running algif_aead_init at boot,
+      # disabling the subsystem even when compiled in. On Debian/Ubuntu where
+      # algif_aead is a loadable module, this arg is a harmless no-op — both
+      # the modprobe.d entry and this cmdline arg can coexist safely across distros.
+      - initcall_blacklist=algif_aead_init
 
 # These settings are incompatible with low-latency PCIe passthrough (such as GPU passthrough)
 # You can disable these security options when you don't have hostile tenant VMs (security is always
 # a trade-off anyway)
 - name: Hardens kernel command line arguments for bare metal
-  become: true
-  notify: Reboot
-  ansible.builtin.command: grubby --update-kernel=ALL --args="{{ item }}"
-  changed_when: true
-  when: ansible_facts.virtualization_role == "host" and cmdline_hardened.rc != 0
-  loop:
-    # Enforce AMD IOMMU isolation
-    - amd_iommu=force_isolation
+  when: ansible_facts.virtualization_role == "host" and os_base_cmdline_hardened.rc != 0
+  ansible.builtin.include_tasks: set_kernel_args.yml
+  vars:
+    os_base_kernel_args:
+      # Enforce AMD IOMMU isolation
+      - amd_iommu=force_isolation
 
-    # Disable the busmaster bit on all PCI bridges during very
-    # early boot to avoid holes in IOMMU.
-    #
-    # This option may cause failures with some poorly behaved hardware and
-    # should not be enabled without testing. The kernel commandline options
-    # "efi=disable_early_pci_dma" or "efi=no_disable_early_pci_dma" may be
-    # used to override the default. Note that PCI devices downstream from PCI
-    # bridges are disconnected from their drivers first, using the UEFI
-    # driver model API, so that DMA can be disabled safely at the bridge
-    # level.
-    #
-    # https://mjg59.dreamwidth.org/54433.html
-    # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4444f8541dad16fefd9b8807ad1451e806ef1d94
-    - efi=disable_early_pci_dma
+      # Disable the busmaster bit on all PCI bridges during very
+      # early boot to avoid holes in IOMMU.
+      #
+      # This option may cause failures with some poorly behaved hardware and
+      # should not be enabled without testing. The kernel commandline options
+      # "efi=disable_early_pci_dma" or "efi=no_disable_early_pci_dma" may be
+      # used to override the default. Note that PCI devices downstream from PCI
+      # bridges are disconnected from their drivers first, using the UEFI
+      # driver model API, so that DMA can be disabled safely at the bridge
+      # level.
+      #
+      # https://mjg59.dreamwidth.org/54433.html
+      # https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4444f8541dad16fefd9b8807ad1451e806ef1d94
+      - efi=disable_early_pci_dma
 
-    # Enables strict enforcement of IOMMU TLB invalidation so devices will never be able to access stale data contents
-    # https://github.com/torvalds/linux/blob/master/drivers/iommu/Kconfig#L97
-    # Page 11 of https://lenovopress.lenovo.com/lp1467.pdf
-    - iommu=force iommu.passthrough=0 iommu.strict=1
+      # Enables strict enforcement of IOMMU TLB invalidation so devices will never be able to access stale data contents
+      # https://github.com/torvalds/linux/blob/master/drivers/iommu/Kconfig#L97
+      # Page 11 of https://lenovopress.lenovo.com/lp1467.pdf
+      - iommu=force iommu.passthrough=0 iommu.strict=1

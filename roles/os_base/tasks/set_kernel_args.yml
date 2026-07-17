@@ -1,0 +1,57 @@
+---
+# Ensures kernel command-line arguments are persistently applied, regardless of
+# bootloader (GRUB via grubby, or Armbian/U-Boot via armbianEnv.txt's extraargs=).
+# Expects: os_base_kernel_args (list of strings; each item may itself be multiple
+# space-separated args, same convention grubby --args already accepts).
+
+- name: Check for GRUB
+  ansible.builtin.stat:
+    path: /etc/default/grub
+  register: os_base_grub_check
+
+- name: Check for Armbian U-Boot env
+  ansible.builtin.stat:
+    path: /boot/armbianEnv.txt
+  register: os_base_armbianenv_check
+
+- name: Apply kernel args via grubby (GRUB)
+  become: true
+  when: os_base_grub_check.stat.exists
+  notify: Reboot
+  ansible.builtin.command: grubby --update-kernel=ALL --args="{{ item }}"
+  changed_when: true
+  loop: "{{ os_base_kernel_args }}"
+
+- name: Apply kernel args via armbianEnv.txt (Armbian/U-Boot)
+  when: os_base_armbianenv_check.stat.exists
+  block:
+    - name: Read armbianEnv.txt
+      ansible.builtin.slurp:
+        src: /boot/armbianEnv.txt
+      register: os_base_armbianenv_raw
+
+    - name: Compute merged extraargs
+      ansible.builtin.set_fact:
+        os_base_merged_extraargs: >-
+          {{
+            (
+              ((os_base_armbianenv_raw.content | b64decode).splitlines()
+                | select('match', '^extraargs=')
+                | map('regex_replace', '^extraargs=', '')
+                | list | first | default('')).split()
+              + (os_base_kernel_args | join(' ')).split()
+            ) | unique | join(' ')
+          }}
+
+    - name: Apply kernel args via armbianEnv.txt extraargs (Armbian/U-Boot)
+      become: true
+      notify: Reboot
+      ansible.builtin.lineinfile:
+        path: /boot/armbianEnv.txt
+        regexp: '^extraargs='
+        line: "extraargs={{ os_base_merged_extraargs }}"
+
+- name: Fail if no supported kernel-args mechanism was found
+  when: not os_base_grub_check.stat.exists and not os_base_armbianenv_check.stat.exists
+  ansible.builtin.fail:
+    msg: "No supported kernel command-line mechanism found (no /etc/default/grub, no /boot/armbianEnv.txt)"
