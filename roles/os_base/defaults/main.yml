@@ -31,8 +31,19 @@ install_cloudwatch: yes
 # Remove OS bloat packages not required for servers
 remove_bloat: yes
 
+# Force the performance cpufreq governor at boot on bare-metal hosts. Disable on
+# low-power/thermally-constrained boards where max clock speed isn't wanted.
+cpu_performance_governor: yes
+
+# Whether this role touches the linux-firmware package at all. Disable where the distro has no
+# real linux-firmware package, or manages firmware separately (e.g. Armbian boards, which use
+# armbian-firmware and where linux-firmware is an ambiguous virtual package that can't be
+# installed or removed).
+manage_linux_firmware: yes
+
 # Install linux-firmware. Defaults to bare-metal hosts only, since guests rarely need firmware
 # blobs. Set to true on guests with passed-through hardware that needs firmware (e.g. a GPU).
+# Ignored when manage_linux_firmware is disabled.
 install_linux_firmware: "{{ ansible_facts.virtualization_role == 'host' }}"
 
 # Should we reboot after the playbook has run if required

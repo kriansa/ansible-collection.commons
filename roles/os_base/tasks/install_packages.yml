@@ -10,6 +10,7 @@
 
 - name: Install or remove linux-firmware
   become: true
+  when: manage_linux_firmware
   ansible.builtin.package:
     name: linux-firmware
     state: "{{ 'latest' if install_linux_firmware | bool else 'absent' }}"

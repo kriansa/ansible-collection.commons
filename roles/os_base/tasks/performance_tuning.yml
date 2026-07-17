@@ -72,6 +72,7 @@
 
 - name: Set cpu frequency on boot for bare metal servers
   become: true
+  when: cpu_performance_governor
   notify: Restart cpupower
   ansible.builtin.copy:
     dest: /etc/systemd/system/cpupower.service
@@ -90,59 +91,73 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: Tune sysctl variables for servers
-  become: true
-  ansible.posix.sysctl:
-    name: "{{ item.name }}"
-    value: "{{ item.value }}"
-    sysctl_set: true
-    sysctl_file: /etc/sysctl.d/70-tuned-settings.conf
-  loop:
+- name: Check which tuned sysctl knobs exist on this kernel
+  ansible.builtin.stat:
+    path: "/proc/sys/{{ item.name | replace('.', '/') }}"
+  register: os_base_tuned_sysctl_checks
+  loop: "{{ os_base_tuned_sysctls }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    os_base_tuned_sysctls:
       # Setup for when not acting as a router
-    - { name: net.ipv4.conf.default.rp_filter, value: "2" }
-    - { name: net.ipv4.conf.all.rp_filter, value: "2" }
-    - { name: net.ipv4.conf.default.accept_redirects, value: "0" }
-    - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
-    - { name: net.ipv6.conf.default.accept_redirects, value: "0" }
-    - { name: net.ipv6.conf.all.accept_redirects, value: "0" }
-    - { name: net.ipv4.conf.default.send_redirects, value: "0" }
-    - { name: net.ipv4.conf.all.send_redirects, value: "0" }
-    - { name: net.ipv4.ip_forward, value: "0" }
+      - { name: net.ipv4.conf.default.rp_filter, value: "2" }
+      - { name: net.ipv4.conf.all.rp_filter, value: "2" }
+      - { name: net.ipv4.conf.default.accept_redirects, value: "0" }
+      - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
+      - { name: net.ipv6.conf.default.accept_redirects, value: "0" }
+      - { name: net.ipv6.conf.all.accept_redirects, value: "0" }
+      - { name: net.ipv4.conf.default.send_redirects, value: "0" }
+      - { name: net.ipv4.conf.all.send_redirects, value: "0" }
+      - { name: net.ipv4.ip_forward, value: "0" }
 
       # Disable Source Routing
-    - { name: net.ipv4.conf.default.accept_source_route, value: "0" }
-    - { name: net.ipv4.conf.all.accept_source_route, value: "0" }
-    - { name: net.ipv4.conf.all.forwarding, value: "0" }
-    - { name: net.ipv4.conf.default.forwarding, value: "0" }
-    - { name: net.ipv6.conf.default.accept_source_route, value: "0" }
-    - { name: net.ipv6.conf.all.accept_source_route, value: "0" }
-    - { name: net.ipv6.conf.all.forwarding, value: "0" }
-    - { name: net.ipv6.conf.default.forwarding, value: "0" }
+      - { name: net.ipv4.conf.default.accept_source_route, value: "0" }
+      - { name: net.ipv4.conf.all.accept_source_route, value: "0" }
+      - { name: net.ipv4.conf.all.forwarding, value: "0" }
+      - { name: net.ipv4.conf.default.forwarding, value: "0" }
+      - { name: net.ipv6.conf.default.accept_source_route, value: "0" }
+      - { name: net.ipv6.conf.all.accept_source_route, value: "0" }
+      - { name: net.ipv6.conf.all.forwarding, value: "0" }
+      - { name: net.ipv6.conf.default.forwarding, value: "0" }
 
       # More memory for networking thus less frequent GCs
-    - { name: net.core.rmem_default, value: "1048576" }
-    - { name: net.core.rmem_max, value: "16777216" }
-    - { name: net.core.wmem_default, value: "1048576" }
-    - { name: net.core.wmem_max, value: "16777216" }
-    - { name: net.core.optmem_max, value: "81920" }
-    - { name: net.ipv4.tcp_rmem, value: "4096 1048576 6291456" }
-    - { name: net.ipv4.tcp_wmem, value: "4096 65536 16777216" }
-    - { name: net.ipv4.udp_rmem_min, value: "8192" }
-    - { name: net.ipv4.udp_wmem_min, value: "8192" }
+      - { name: net.core.rmem_default, value: "1048576" }
+      - { name: net.core.rmem_max, value: "16777216" }
+      - { name: net.core.wmem_default, value: "1048576" }
+      - { name: net.core.wmem_max, value: "16777216" }
+      - { name: net.core.optmem_max, value: "81920" }
+      - { name: net.ipv4.tcp_rmem, value: "4096 1048576 6291456" }
+      - { name: net.ipv4.tcp_wmem, value: "4096 65536 16777216" }
+      - { name: net.ipv4.udp_rmem_min, value: "8192" }
+      - { name: net.ipv4.udp_wmem_min, value: "8192" }
 
       # Reduced TCP timeout (15 min)
-    - { name: net.ipv4.tcp_keepalive_time, value: "600" }
-    - { name: net.ipv4.tcp_keepalive_intvl, value: "60" }
-    - { name: net.ipv4.tcp_keepalive_probes, value: "5" }
+      - { name: net.ipv4.tcp_keepalive_time, value: "600" }
+      - { name: net.ipv4.tcp_keepalive_intvl, value: "60" }
+      - { name: net.ipv4.tcp_keepalive_probes, value: "5" }
 
       # TCP additional features
-    - { name: net.ipv4.ip_local_port_range, value: "32768 65535" }
-    - { name: net.ipv4.tcp_fastopen, value: "3" }
-    - { name: net.mptcp.enabled, value: "1" }
+      - { name: net.ipv4.ip_local_port_range, value: "32768 65535" }
+      - { name: net.ipv4.tcp_fastopen, value: "3" }
+      # Requires CONFIG_MPTCP, not present on every kernel (e.g. some ARM SBC builds).
+      - { name: net.mptcp.enabled, value: "1" }
 
       # Performance optimization
       # Consider decreasing dirty ratios if the application is memory intensive and latency
       # sensitive (such as databases). Swappiness is ignored if the system doesn't have swap.
-    - { name: vm.dirty_background_ratio, value: "10" }
-    - { name: vm.dirty_ratio, value: "30" }
-    - { name: vm.swappiness, value: "10" }
+      - { name: vm.dirty_background_ratio, value: "10" }
+      - { name: vm.dirty_ratio, value: "30" }
+      - { name: vm.swappiness, value: "10" }
+
+- name: Tune sysctl variables for servers
+  become: true
+  when: item.stat.exists
+  ansible.posix.sysctl:
+    name: "{{ item.item.name }}"
+    value: "{{ item.item.value }}"
+    sysctl_set: true
+    sysctl_file: /etc/sysctl.d/70-tuned-settings.conf
+  loop: "{{ os_base_tuned_sysctl_checks.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
