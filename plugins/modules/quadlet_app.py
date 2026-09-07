@@ -85,6 +85,14 @@ notes:
     - At least quadlets/main.container must exist
     - init and config subdirectories must end with .container or .pod
     - All files are automatically templated by Ansible before module receives them
+    - Named volumes are mounted idmapped and chowned once by a generated bootstrap unit, rather
+      than being recursively chowned to container root on every mount
+    - A .volume may declare X-Owner=uid:gid to set that ownership in container-relative terms. It
+      defaults to 0:0, which is correct for any image running as root; an image that drops
+      privileges internally has to declare the uid it drops to.
+    - Containers default to UserNS=auto:size=65536. A container that reads the host journal or
+      other processes' /proc entries must declare UserNS=host, or it will half-work - those files
+      read as nobody while world-readable ones keep succeeding.
 """
 
 EXAMPLES = r"""
@@ -156,6 +164,31 @@ msg:
 # Default deployment paths
 QUADLET_SYSTEMD_DIR = "/etc/containers/systemd"
 QUADLET_APP_BASE_DIR = "/srv"
+
+# Holds one marker per volume recording the ownership that was last applied to it. The marker
+# filename carries the uid/gid, so changing a volume's declared owner changes the path and the
+# bootstrap unit's condition lets it run again.
+QUADLET_APP_STATE_DIR = "/var/lib/quadlet-app"
+
+# Image for the generated volume ownership bootstrap containers. Alpine has no ENTRYPOINT and runs
+# as root, so the generated unit needs no Entrypoint= or User= override.
+VOLUME_INIT_IMAGE = "docker.io/library/alpine:3.24"
+
+# Mount point for the volume inside the bootstrap container
+VOLUME_INIT_TARGET = "/target"
+
+# Ownership applied to a volume that does not declare X-Owner. Container root suits any image that
+# runs as root, which is most of them; an image that drops privileges internally has to say so.
+DEFAULT_VOLUME_OWNER = "0:0"
+
+# Start timeout for the bootstrap unit. The chown is recursive, so its cost scales with the number
+# of files - well past a default start timeout on a large volume. Generous rather than unlimited:
+# a run this long means something is wrong, and failing leaves no marker, so it simply retries.
+VOLUME_INIT_TIMEOUT_SEC = 1800
+
+# Podman's image and volume store. Containers are ordered against it so they never start before
+# the filesystem holding their image is mounted.
+QUADLET_SYSTEMD_STORAGE_DIR = "/var/lib/containers/storage"
 
 
 class ValidationError(Exception):
@@ -418,11 +451,20 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
     Rule 2: Replace %init%/%config% volume paths
     """
 
-    # Default mount options for %init%/%config% volume mounts
-    DEFAULT_INIT_CONFIG_VOLUME_OPTIONS = "ro,Z,U"
+    # Default mount options for %init%/%config% volume mounts.
+    # idmap rather than U: the kernel translates ids at the mount, so the container sees these
+    # files as its own without the host-side tree being chowned out from under Ansible.
+    DEFAULT_INIT_CONFIG_VOLUME_OPTIONS = "ro,Z,idmap"
 
-    # Default mount options for named .volume references
-    DEFAULT_NAMED_VOLUME_OPTIONS = "rw,Z,U"
+    # Default mount options for named .volume references. Their on-disk ids are container-relative,
+    # set once by the volume's bootstrap unit, so idmap presents them correctly whatever range
+    # podman hands out.
+    DEFAULT_NAMED_VOLUME_OPTIONS = "rw,Z,idmap"
+
+    # Size forced onto a bare UserNS=auto. Podman otherwise derives the range from the image's
+    # highest uid, which can be as little as 1024 - far too small for an app that writes as a
+    # high uid, and the resulting files are then unmappable.
+    DEFAULT_USERNS_SIZE = 65536
 
     # File extensions that need Rule 1 (prefix resources)
     RULE1_EXTENSIONS = {".container", ".pod", ".kube"}
@@ -455,14 +497,16 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         "After",
     }
 
-    def __init__(self, app_name: str):
+    def __init__(self, app_name: str, volume_owners: Dict[str, str] | None = None):
         """
         Initialize preprocessor.
 
         Args:
             app_name: Application name to use for prefixing
+            volume_owners: Maps volume stem -> "uid:gid" for volumes declaring X-Owner
         """
         self.app_name = app_name
+        self.volume_owners = volume_owners or {}
 
     def preprocess_quadlet_file(self, content: str, filename: str) -> str:
         """
@@ -476,6 +520,10 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             Preprocessed content
         """
         file_ext = Path(filename).suffix
+
+        # Which volumes this container mounts has to be read before Rule 1 rewrites the
+        # references into their prefixed form
+        mounted_volumes = self.referenced_volumes(content)
 
         # Apply Rule 3 first (inject resource names) - operates on full content
         content = self._apply_rule3_inject_names(content, filename)
@@ -504,9 +552,229 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             if needs_rule2:
                 line = self._apply_rule2_replace_paths(line, container_name)
 
+            if file_ext == ".container":
+                line = self._normalize_userns(line)
+
             processed_lines.append(line)
 
-        return "\n".join(processed_lines)
+        content = "\n".join(processed_lines)
+
+        # X-Owner is ours, not quadlet's - it never reaches the deployed file
+        if file_ext == ".volume":
+            content = self._strip_directive(content, "X-Owner")
+
+        # Injected last, and deliberately after Rule 1: these values are already app-prefixed, and
+        # Rule 1 would prefix them a second time
+        if file_ext == ".container":
+            content = self._inject_unit_directives(content, mounted_volumes)
+            content = self._inject_default_userns(content)
+
+        return content
+
+    def _inject_default_userns(self, content: str) -> str:
+        """
+        Give a container a user namespace unless it asked for something else.
+
+        Rootful podman puts a container in the host's namespace by default, so its root is the
+        host's root. Defaulting to `auto` gives each container its own unprivileged range instead.
+        Volumes are unaffected: they are mounted idmapped, so their on-disk ids are the container's
+        own either way.
+
+        A container that genuinely needs host identity - reading the host journal, or another
+        process's /proc entries - must say so with an explicit UserNS=host. Inside a namespace
+        those files read as nobody, and, worse, world-readable ones keep working, so such a
+        container half-works rather than failing outright.
+
+        Args:
+            content: File content, after Rules 1-3
+
+        Returns:
+            Content with a default UserNS if none was declared
+        """
+        if self._has_directive(content, "UserNS"):
+            return content
+
+        return self._append_to_section(content, "Container", [
+            "# Default from quadlet_app. Set UserNS= explicitly to override; UserNS=host is what a",
+            "# container needs if it reads the host journal or other processes' /proc entries.",
+            f"UserNS=auto:size={self.DEFAULT_USERNS_SIZE}",
+        ])
+
+    @staticmethod
+    def _has_directive(content: str, directive: str) -> bool:
+        """
+        Check whether a directive appears at all, ignoring comments.
+
+        Args:
+            content: File content
+            directive: Directive name, without the '='
+
+        Returns:
+            True if the directive is set
+        """
+        prefix = f"{directive}="
+        return any(
+            stripped.startswith(prefix)
+            for stripped in (line.strip() for line in content.split("\n"))
+            if not stripped.startswith("#")
+        )
+
+    def referenced_volumes(self, content: str) -> List[str]:
+        """
+        Find the named .volume resources a quadlet file mounts.
+
+        Args:
+            content: File content, before Rule 1 has prefixed anything
+
+        Returns:
+            Volume stems in first-seen order (e.g. ["data"] for Volume=data.volume:/x)
+        """
+        stems = []
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if not stripped.startswith("Volume=") or stripped.startswith("#"):
+                continue
+            source = stripped[len("Volume="):].split(":", 1)[0]
+            if source.startswith("/") or not source.endswith(".volume"):
+                continue
+            stem = Path(source).stem
+            if stem not in stems:
+                stems.append(stem)
+        return stems
+
+    @staticmethod
+    def _strip_directive(content: str, directive: str) -> str:
+        """
+        Remove every occurrence of a directive from file content.
+
+        Args:
+            content: File content
+            directive: Directive name, without the '='
+
+        Returns:
+            Content with those lines dropped
+        """
+        prefix = f"{directive}="
+        return "\n".join(
+            line for line in content.split("\n") if not line.strip().startswith(prefix)
+        )
+
+    def _normalize_userns(self, line: str) -> str:
+        """
+        Force an explicit range size onto a bare UserNS=auto.
+
+        Podman sizes an unqualified `auto` range from the image's highest uid, which is routinely
+        far smaller than the uids the app actually writes with. Anything above the range is
+        unmappable: it reads back as 65534 and is not writable even by container root.
+
+        Explicit uidmapping= or size=, and every non-auto mode, are left untouched.
+
+        Args:
+            line: Single line from a .container file
+
+        Returns:
+            Line with size= added when it was missing
+        """
+        stripped = line.lstrip()
+        if not stripped.startswith("UserNS="):
+            return line
+
+        value = stripped[len("UserNS="):].strip()
+        if not value.startswith("auto"):
+            return line
+        if "size=" in value or "uidmapping=" in value:
+            return line
+
+        leading_ws = line[: len(line) - len(stripped)]
+        separator = "," if value.startswith("auto:") else ":"
+        return f"{leading_ws}UserNS={value}{separator}size={self.DEFAULT_USERNS_SIZE}"
+
+    def _inject_unit_directives(self, content: str, mounted_volumes: List[str]) -> str:
+        """
+        Add the [Unit] directives every container gets by default.
+
+        Two of them:
+        - RequiresMountsFor on the podman image store, so a container never starts before the
+          storage it lives on is mounted. Declaring it here keeps it out of every app's quadlet.
+        - Ordering against the ownership bootstrap unit of each volume that declares an owner.
+
+        Args:
+            content: File content, after Rules 1-3
+            mounted_volumes: Volume stems this container mounts
+
+        Returns:
+            Content with the directives injected
+        """
+        directives = []
+
+        storage_mount = f"RequiresMountsFor={QUADLET_SYSTEMD_STORAGE_DIR}"
+        # RequiresMountsFor is additive in systemd and an app may legitimately declare its own for
+        # a different path, so match on the path rather than on the directive
+        if not self._has_directive_value(content, "RequiresMountsFor", QUADLET_SYSTEMD_STORAGE_DIR):
+            directives.append(storage_mount)
+
+        for stem in mounted_volumes:
+            if stem not in self.volume_owners:
+                continue
+            unit = f"{self.app_name}--{stem}-volume-init.service"
+            directives.extend([f"Requires={unit}", f"After={unit}"])
+
+        if not directives:
+            return content
+
+        return self._append_to_section(content, "Unit", directives)
+
+    @staticmethod
+    def _has_directive_value(content: str, directive: str, value: str) -> bool:
+        """Check whether a directive already carries a given value."""
+        prefix = f"{directive}="
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped.startswith(prefix):
+                continue
+            if value in stripped[len(prefix):].split():
+                return True
+        return False
+
+    @staticmethod
+    def _append_to_section(content: str, section: str, directives: List[str]) -> str:
+        """
+        Append directives to a section, creating the section when it is absent.
+
+        Args:
+            content: File content
+            section: Section name without brackets (e.g. "Unit")
+            directives: Lines to add
+
+        Returns:
+            Content with the directives in place
+        """
+        lines = content.split("\n")
+        header = f"[{section}]"
+
+        start = None
+        for i, line in enumerate(lines):
+            if line.strip() == header:
+                start = i
+                break
+
+        if start is None:
+            # No such section - open one at the top so it precedes everything else
+            return "\n".join([header] + directives + [""] + lines)
+
+        # Insert at the end of the section, before the next section header
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                end = i
+                break
+
+        # Keep the blank line that separated this section from the next
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+
+        return "\n".join(lines[:end] + directives + lines[end:])
 
     def _apply_rule1_prefix_resources(self, line: str) -> str:
         """
@@ -836,6 +1104,11 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         self.quadlet_dest = QUADLET_SYSTEMD_DIR
         self.srv_base: str | None = None  # Set after app_name validation
 
+        # Volume stem -> "uid:gid", from X-Owner. Populated while processing quadlets.
+        self.volume_owners: Dict[str, str] = {}
+        # Quadlet files this module derives rather than reads from the app directory
+        self.generated_quadlets: List[str] = []
+
         # Initialize components
         self.validator: QuadletValidator | None = None
         self.discovery: QuadletFileDiscovery | None = None
@@ -883,6 +1156,10 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 processed_files = self._process_files(discovered_files)
                 quadlet_names = [name for name, _ in discovered_files["quadlets"]]
 
+            deployed_quadlets = [
+                f"{self.app_name}--{name}" for name in quadlet_names
+            ] + self.generated_quadlets
+
             # Phase 4: Check idempotency
             needs_update = self.idempotency.needs_deployment(processed_files)
 
@@ -896,7 +1173,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                     changed=False,
                     application_name=self.app_name,
                     service_name=service_name,
-                    quadlet_files=[f"{self.app_name}--{name}" for name in quadlet_names],
+                    quadlet_files=deployed_quadlets,
                     msg="application already up to date",
                 )
 
@@ -916,7 +1193,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 changed=self.changed,
                 application_name=self.app_name,
                 service_name=service_name,
-                quadlet_files=[f"{self.app_name}--{name}" for name in quadlet_names],
+                quadlet_files=deployed_quadlets,
                 msg=self._get_success_message(),
             )
 
@@ -935,34 +1212,20 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         Returns:
             Dict mapping destination_path -> content
         """
-        assert self.preprocessor is not None
         assert self.srv_base is not None
 
-        processed = {}
+        quadlet_contents = {
+            filename: self._read_file(full_path)
+            for filename, full_path in discovered_files["quadlets"]
+        }
+        processed = self._process_quadlets(quadlet_contents)
 
-        # Process quadlet files (need preprocessing)
-        for filename, full_path in discovered_files["quadlets"]:
-            content = self._read_file(full_path)
-            processed_content = self.preprocessor.preprocess_quadlet_file(content, filename)
-
-            dest_path = os.path.join(self.quadlet_dest, f"{self.app_name}--{filename}")
-            processed[dest_path] = processed_content
-
-        # Process init files (no preprocessing)
-        for container_dir, rel_path, full_path in discovered_files["init"]:
-            content = self._read_file(full_path)
-            container_name = Path(container_dir).stem  # Remove .container extension
-
-            dest_path = os.path.join(self.srv_base, "init", container_name, rel_path)
-            processed[dest_path] = content
-
-        # Process config files (no preprocessing)
-        for container_dir, rel_path, full_path in discovered_files["config"]:
-            content = self._read_file(full_path)
-            container_name = Path(container_dir).stem  # Remove .container extension
-
-            dest_path = os.path.join(self.srv_base, "config", container_name, rel_path)
-            processed[dest_path] = content
+        # init and config files are deployed verbatim - no preprocessing
+        for kind in ("init", "config"):
+            for container_dir, rel_path, full_path in discovered_files[kind]:
+                container_name = Path(container_dir).stem  # Remove .container extension
+                dest_path = os.path.join(self.srv_base, kind, container_name, rel_path)
+                processed[dest_path] = self._read_file(full_path)
 
         return processed
 
@@ -976,45 +1239,200 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         Returns:
             Dict mapping destination_path -> content
         """
-        assert self.preprocessor is not None
         assert self.srv_base is not None
+
+        quadlet_contents = {f["name"]: f["content"] for f in self.files_data["quadlets"]}
+        processed = self._process_quadlets(quadlet_contents)
+
+        # init and config files are deployed verbatim - no preprocessing
+        for kind in ("init", "config"):
+            for file_data in self.files_data[kind]:
+                container_name = Path(file_data["container"]).stem
+                dest_path = os.path.join(self.srv_base, kind, container_name, file_data["path"])
+                processed[dest_path] = file_data["content"]
+
+        return processed
+
+    def _process_quadlets(self, quadlet_contents: Dict[str, str]) -> Dict[str, str]:
+        """
+        Preprocess quadlet files and generate the units derived from them.
+
+        Args:
+            quadlet_contents: Maps quadlet filename -> raw (already templated) content
+
+        Returns:
+            Dict mapping destination_path -> content
+        """
+        assert self.preprocessor is not None
+
+        # Ownership has to be known before any container is preprocessed: it decides both the
+        # mount options each volume reference gets and which bootstrap units exist to order against
+        self.volume_owners = self._collect_volume_owners(quadlet_contents)
+        self.preprocessor.volume_owners = self.volume_owners
 
         processed = {}
 
-        # Process quadlet files (need preprocessing)
-        for file_data in self.files_data["quadlets"]:
-            filename = file_data["name"]
-            content = file_data["content"]
-
-            # Apply preprocessing rules
-            processed_content = self.preprocessor.preprocess_quadlet_file(content, filename)
-
+        for filename, content in quadlet_contents.items():
             dest_path = os.path.join(self.quadlet_dest, f"{self.app_name}--{filename}")
-            processed[dest_path] = processed_content
+            processed[dest_path] = self.preprocessor.preprocess_quadlet_file(content, filename)
 
-        # Process init files (no preprocessing, already templated)
-        for file_data in self.files_data["init"]:
-            container_dir = file_data["container"]
-            rel_path = file_data["path"]
-            content = file_data["content"]
-
-            container_name = Path(container_dir).stem  # Remove .container extension
-
-            dest_path = os.path.join(self.srv_base, "init", container_name, rel_path)
-            processed[dest_path] = content
-
-        # Process config files (no preprocessing, already templated)
-        for file_data in self.files_data["config"]:
-            container_dir = file_data["container"]
-            rel_path = file_data["path"]
-            content = file_data["content"]
-
-            container_name = Path(container_dir).stem  # Remove .container extension
-
-            dest_path = os.path.join(self.srv_base, "config", container_name, rel_path)
-            processed[dest_path] = content
+        for stem, owner in self.volume_owners.items():
+            filename = f"{self.app_name}--{stem}-volume-init.container"
+            self.generated_quadlets.append(filename)
+            processed[os.path.join(self.quadlet_dest, filename)] = self._volume_init_unit(
+                stem, owner
+            )
 
         return processed
+
+    def _collect_volume_owners(self, quadlet_contents: Dict[str, str]) -> Dict[str, str]:
+        """
+        Determine the owner of every volume the app declares.
+
+        A .volume without X-Owner falls back to container root, which is right for any image
+        running as root. An image that drops privileges internally has to declare its own uid,
+        or its data ends up owned by a user it no longer is.
+
+        Args:
+            quadlet_contents: Maps quadlet filename -> raw content
+
+        Returns:
+            Maps volume stem -> validated "uid:gid"
+
+        Raises:
+            ValidationError: On a malformed or unusable X-Owner value
+        """
+        owners = {}
+
+        for filename, content in quadlet_contents.items():
+            if not filename.endswith(".volume"):
+                continue
+
+            owner = DEFAULT_VOLUME_OWNER
+            for line in content.split("\n"):
+                stripped = line.strip()
+                if not stripped.startswith("X-Owner="):
+                    continue
+                owner = self._validate_owner(stripped[len("X-Owner="):].strip(), filename)
+
+            owners[Path(filename).stem] = owner
+
+        return owners
+
+    @staticmethod
+    def _validate_owner(value: str, filename: str) -> str:
+        """
+        Check an X-Owner value is a uid:gid pair the consuming container can actually see.
+
+        Args:
+            value: Raw directive value
+            filename: Quadlet filename, for the error message
+
+        Returns:
+            Normalized "uid:gid"
+
+        Raises:
+            ValidationError: If malformed, or outside the consuming container's user namespace
+        """
+        parts = value.split(":")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValidationError(
+                f"Invalid X-Owner in {filename}: '{value}'. "
+                "Expected a numeric uid:gid pair, for example X-Owner=10000:10000"
+            )
+
+        limit = QuadletPreprocessor.DEFAULT_USERNS_SIZE
+        if any(int(part) >= limit for part in parts):
+            raise ValidationError(
+                f"X-Owner in {filename} is out of range: '{value}'. Ids must be below {limit}, "
+                "which is the size of the user namespace the consuming container gets. A higher "
+                "id would be written to disk and then be invisible to the app that needs it."
+            )
+
+        return ":".join(parts)
+
+    def _volume_init_unit(self, stem: str, owner: str) -> str:
+        """
+        Build the ownership bootstrap unit for one volume.
+
+        It chowns the volume once and is then skipped: the marker filename carries the uid/gid, so
+        changing X-Owner changes the path and the unit's condition lets it run again.
+
+        Deliberately no UserNS and no idmap on the mount - it has to run as real host root. An
+        existing volume's files are owned by host ids outside any container's range, and a process
+        in a user namespace cannot chown a file whose owner is unmapped, not even as container
+        root. What it writes is the container-relative id, which is exactly what the app then sees
+        through its own idmapped mount.
+
+        Args:
+            stem: Volume stem (e.g. "data")
+            owner: Validated "uid:gid"
+
+        Returns:
+            Quadlet file content
+        """
+        volume = f"{self.app_name}--{stem}"
+        marker = f"{QUADLET_APP_STATE_DIR}/{volume}.{owner.replace(':', '_')}.done"
+
+        # Children first and the root last, so the root's ownership is a true completion marker:
+        # an interrupted run cannot leave a half-chowned tree behind a satisfied condition
+        chown = (
+            f"find {VOLUME_INIT_TARGET} -mindepth 1 -print0 | xargs -0r chown -h {owner}; "
+            f"chown {owner} {VOLUME_INIT_TARGET}"
+        )
+
+        return "\n".join([
+            "# Generated by kriansa.commons.quadlet_app - do not edit",
+            "[Unit]",
+            f"Description=Ownership bootstrap for {volume}",
+            f"ConditionPathExists=!{marker}",
+            "",
+            "[Container]",
+            f"ContainerName={volume}-volume-init",
+            f"Image={VOLUME_INIT_IMAGE}",
+            # Lowercase z: the consuming container's Z relabels the volume to its own private
+            # category moments later, so taking a private one here would only be discarded
+            f"Volume={volume}.volume:{VOLUME_INIT_TARGET}:rw,z",
+            f"Exec=/bin/sh -c '{chown}'",
+            "",
+            "[Service]",
+            "Type=oneshot",
+            "RemainAfterExit=yes",
+            f"TimeoutStartSec={VOLUME_INIT_TIMEOUT_SEC}",
+            f"ExecStartPost=/usr/bin/touch {marker}",
+            "",
+        ])
+
+    def _sync_volume_markers(self):
+        """
+        Create the state directory and drop markers that no longer match a declared owner.
+
+        Keeps exactly one marker per volume, so the state directory reads as an inventory of what
+        each volume is currently owned by - and so a changed X-Owner lets the bootstrap unit run
+        again instead of staying skipped against a stale marker.
+        """
+        try:
+            os.makedirs(QUADLET_APP_STATE_DIR, mode=0o755, exist_ok=True)
+            existing = os.listdir(QUADLET_APP_STATE_DIR)
+        except OSError as e:
+            self.module.fail_json(msg=f"Failed to prepare {QUADLET_APP_STATE_DIR}: {e}")
+            return  # unreachable, but for type checking
+
+        for stem, owner in self.volume_owners.items():
+            volume = f"{self.app_name}--{stem}"
+            current = f"{volume}.{owner.replace(':', '_')}.done"
+
+            for entry in existing:
+                # The trailing dot keeps 'app--data' from matching 'app--data2'
+                if not entry.startswith(f"{volume}.") or not entry.endswith(".done"):
+                    continue
+                if entry == current:
+                    continue
+
+                try:
+                    os.unlink(os.path.join(QUADLET_APP_STATE_DIR, entry))
+                except OSError as e:
+                    self.module.fail_json(msg=f"Failed to remove stale marker {entry}: {e}")
 
     def _deploy_files(self, processed_files: Dict[str, str]):
         """
@@ -1023,6 +1441,8 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         Args:
             processed_files: Dict mapping destination_path -> content
         """
+        self._sync_volume_markers()
+
         for dest_path, content in processed_files.items():
             # Create parent directory
             dest_dir = os.path.dirname(dest_path)
@@ -1054,6 +1474,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         if self.changed:
             self._validate_quadlet_syntax()
             self._systemctl(["daemon-reload"])
+            self._restart_volume_init_units()
             service_changed = True
 
         # Determine if we need to restart dependencies and main service
@@ -1078,6 +1499,25 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             service_changed = True
 
         return service_changed
+
+    def _restart_volume_init_units(self):
+        """
+        Re-run the generated ownership bootstrap units.
+
+        They are Type=oneshot with RemainAfterExit=yes, so once one has run it stays active and
+        systemd never re-checks its condition. Changing X-Owner rewrites the unit and drops the old
+        marker, but without an explicit restart nothing would apply the new ownership until the host
+        next booted - leaving no marker and stale ownership in the meantime.
+
+        These cannot be picked up by the dependency walk in _get_app_dependencies: that starts from
+        the main service, and a volume mounted only by a secondary container is not in its tree.
+
+        Restarting is cheap when nothing changed. The marker still exists, so the condition fails
+        and systemd skips the unit without starting a container.
+        """
+        units = [f"{Path(name).stem}.service" for name in self.generated_quadlets]
+        if units:
+            self._systemctl(["restart"] + units)
 
     def _get_app_dependencies(self, service_name: str) -> List[str]:
         """

@@ -67,10 +67,11 @@ After=myapp--db.service
 
 [Container]
 Network=myapp--app.network
-Volume=myapp--data.volume:rw,Z,U
+Volume=myapp--data.volume:rw,Z,idmap
 ```
 
-*For named `.volume` references with no options specified, `rw,Z,U` is applied automatically.*
+*For named `.volume` references with no options specified, `rw,Z,idmap` is applied automatically —
+see [Volume Ownership](#volume-ownership).*
 
 ### Path Replacement
 Volume paths using `%init%` or `%config%` placeholders are replaced with deployment paths.
@@ -83,11 +84,64 @@ Volume=%config%/nginx.conf:/etc/nginx/nginx.conf
 
 # After preprocessing (app name: myapp, container: main)
 [Container]
-Volume=/srv/myapp/init/main:/docker-entrypoint-initdb.d:ro,Z,U
-Volume=/srv/myapp/config/main/nginx.conf:/etc/nginx/nginx.conf:ro,Z,U
+Volume=/srv/myapp/init/main:/docker-entrypoint-initdb.d:ro,Z,idmap
+Volume=/srv/myapp/config/main/nginx.conf:/etc/nginx/nginx.conf:ro,Z,idmap
 ```
 
-*If no mount options are specified, `ro,Z,U` is applied automatically.*
+*If no mount options are specified, `ro,Z,idmap` is applied automatically.* `idmap` rather than `U`
+means the deployed files keep their `root:root` ownership on the host — the kernel translates ids at
+the mount instead — so the tree Ansible writes is never chowned out from under it.
+
+### User Namespaces
+
+Every `.container` gets `UserNS=auto:size=65536` unless it declares a `UserNS=` of its own.
+
+Two things are happening here. First, **`auto` is the default**: rootful podman otherwise puts a
+container in the host's namespace, so its root *is* the host's root. Defaulting to `auto` gives each
+container its own unprivileged range instead. Volumes are unaffected either way, because they are
+mounted idmapped — their on-disk ids are the container's own regardless.
+
+Second, **the size is pinned**. Podman derives an unqualified `auto` range from the image's highest
+uid, which is routinely far smaller than the uids the application actually writes with — as little
+as 1024. Any file owned above the range is unmappable: it reads back as `65534` and is not writable,
+*even by container root*.
+
+```ini
+# Before preprocessing
+[Container]
+Image=nginx
+
+# After preprocessing
+[Container]
+Image=nginx
+UserNS=auto:size=65536
+```
+
+An explicit `size=` or `uidmapping=`, and every non-`auto` mode, are left untouched.
+
+> **Containers that need host identity must say so with `UserNS=host`.** Anything reading the host
+> journal or another process's `/proc` entries only works while its ids *are* the host's ids. In a
+> namespace those files read as `65534` and are unreadable — but world-readable `/proc` entries keep
+> working, so such a container **half-works**: the unit stays green and some metrics keep flowing
+> while log collection is silently dead. A host-observability agent is the usual case.
+
+Don't be alarmed by a fragmented `/proc/PID/uid_map`. Podman reuses a container's previously
+allocated range and stitches further segments on to reach the requested size, so a map can end up
+looking like `0 235165 1024 / 1024 628380 64512` rather than one clean span. All of `0..65535` is
+still mapped, just not contiguously on the host side — and since volumes are idmapped, which segment
+an id lands in has no bearing on whether the container can read its own files.
+
+Changing the size of an existing container's range makes podman re-chown its whole image layer
+(`storage-chown-by-maps`). That is one-time and cached per mapping, but it scales with the number of
+files in the image: on a Raspberry-Pi-class board it took ~15 minutes and needed `TimeoutStartSec`
+raised well above the default to survive.
+
+### Container Storage Ordering
+
+Every `.container` gets `RequiresMountsFor=/var/lib/containers/storage` in its `[Unit]` section, so
+a container never starts before the filesystem holding its image is mounted. It is skipped when the
+file already lists that path, and other `RequiresMountsFor` entries are left alone — the directive
+is additive in systemd, so an app can still declare its own for a different mount.
 
 ### Automatic Resource Naming
 Resource name directives are automatically injected if not provided, ensuring predictable naming instead of Podman's default `systemd-` prefix.
@@ -104,6 +158,68 @@ Image=nginx:latest
 ```
 
 Applies to: `ContainerName` (`.container`), `PodName` (`.pod`), `VolumeName` (`.volume`), `NetworkName` (`.network`). Explicit names in your files are always respected.
+
+## Volume Ownership
+
+Every named volume has an owner, expressed in the container's own terms. It defaults to `0:0` —
+correct for any image that runs as root — and an image that drops privileges internally declares the
+uid it drops to with `X-Owner`:
+
+```ini
+# quadlets/data.volume
+[Volume]
+Driver=stratis
+X-Owner=10000:10000
+```
+
+`X-Owner` is consumed by this module and never reaches the deployed file.
+
+> **Getting it wrong is an outage, not data loss.** If the declared owner is not the uid the app
+> actually runs as, the app cannot read its own volume and fails to start. Correct the value and
+> redeploy: the marker path changes, so the chown re-runs. The one case to think about first is a
+> volume whose files are *not* uniformly owned — flattening it to a single owner loses that
+> distinction, and no redeploy brings it back.
+
+### Why it exists
+
+`UserNS=auto` gives each container a unique host uid range, but *which* range is decided at start
+time — podman packs them in start order and sizes each one from the image's highest uid. Bumping an
+unrelated container's image is enough to move a neighbour's base. A volume outlives the container,
+so its files end up owned by a host uid nobody maps any more.
+
+Podman's own answer is the `U` mount option, which recursively chowns the whole volume to the
+container's mapped root on *every* mount. That works only for images that run as root — an image
+that starts as root and drops privileges internally gets its data directory handed back to root on
+every start, and never regains it.
+
+Instead, volumes are mounted `rw,Z,idmap`. The kernel translates ids at the mount, so a file stored
+on disk as uid 10000 *is* uid 10000 inside the container, whatever range podman picked. The mapping
+is then free to drift and nothing notices, and the ownership is set once rather than on every mount.
+
+### What gets generated
+
+For each volume, the module deploys `{app}--{volume}-volume-init.container`: a `Type=oneshot` unit
+that chowns the volume once, ordered before every container that mounts it.
+
+It is guarded by a marker under `/var/lib/quadlet-app/` whose filename carries the ids, e.g.
+`myapp--data.10000_10000.done`. Once written, `ConditionPathExists=!` skips the unit on every
+subsequent boot. Changing `X-Owner` changes the marker path, so the chown runs again — exactly once
+— and the module removes the volume's previous marker. Listing that directory therefore shows what
+each volume is currently owned by.
+
+The unit deliberately runs **without a user namespace**. A process inside one cannot chown a file
+whose owner is unmapped, not even as container root, so a namespaced helper could never migrate a
+volume off its old ownership. It runs as real host root for a fraction of a second, writes the
+container-relative ids straight to disk, and is skipped thereafter.
+
+### Constraints
+
+- **Ids must be below 65536** — the size of the user namespace the consuming container gets. A
+  higher id would be written to disk and then be invisible to the app that needs it.
+- **On-disk ids are container-relative.** A volume carrying ids from the old scheme (say `310000`)
+  is not readable by the container until the bootstrap unit has run.
+- Failure signature when ownership is wrong: files show as `65534`, and writes fail with
+  `Operation not permitted` even as root inside the container.
 
 ## Usage
 
@@ -370,9 +486,48 @@ journalctl -u myapp--main.service -f
 - Naming: `{appname}--{filename}`
 - Examples: `myapp--main.container`, `myapp--data.volume`
 
+Generated units are deployed alongside the ones you wrote:
+- `{appname}--{volume}-volume-init.container`, one per volume declaring `X-Owner`
+
 ### Configuration Files
 - Init: `/srv/{appname}/init/{container}/`
 - Config: `/srv/{appname}/config/{container}/`
+
+### State
+- Volume ownership markers: `/var/lib/quadlet-app/{appname}--{volume}.{uid}_{gid}.done`
+
+## Troubleshooting
+
+### Files show as `65534`, or writes fail as container root
+
+The volume's on-disk ids are outside the container's user namespace. Either the volume has not been
+migrated yet (its bootstrap unit never ran, or was skipped by a stale marker), or `X-Owner` names an
+id the container cannot map.
+
+```bash
+systemctl status myapp--data-volume-init.service   # skipped, or failed?
+ls /var/lib/quadlet-app/                           # which ownership was last applied
+```
+
+Deleting the volume's marker and restarting the unit re-runs the chown.
+
+### `mount point /mnt/<volume> exists and is not empty`
+
+Not caused by this module, but worth knowing on hosts using a volume plugin such as stratis. If
+podman's internal mount count for a volume goes stale — a reboot with the count still set, for
+instance — a container can be handed the *empty directory underneath* the mountpoint rather than the
+volume. Anything it writes lands on the root filesystem, and the plugin then refuses to mount the
+volume at all because the mountpoint is no longer empty.
+
+Repair is to remove the strays, after checking whether anything of value was written there while
+podman believed the volume was mounted:
+
+```bash
+ls -la /mnt/<volume>          # this is the root filesystem, not the volume
+rm -rf /mnt/<volume>/*
+```
+
+An empty `/mnt/<volume>` while the volume is unmounted is the healthy state.
 
 ## Application Naming
 
