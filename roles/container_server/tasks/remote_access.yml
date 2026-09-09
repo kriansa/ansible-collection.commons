@@ -1,0 +1,92 @@
+---
+# The drop-in files below keep their "admin" names on purpose: renaming them would leave the old
+# file in place next to the new one, and two ListenAddress directives for the same address stop sshd
+# from starting at all — locking you out of the host this role just configured.
+- name: Enable SSH through the private network only
+  become: true
+  register: sshd_private_only
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-admin-only.conf
+    mode: "0600"
+    content: "ListenAddress {{ private_ip }}"
+
+- name: Create ssh service drop-in directory
+  become: true
+  ansible.builtin.file:
+    state: directory
+    path: /etc/systemd/system/sshd.service.d
+    mode: "0755"
+
+- name: Add ssh drop-in to wait for the network to come up before starting
+  become: true
+  register: sshd_wait_network
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sshd.service.d/10-wait-network.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      After=network-online.target
+
+- name: Restart SSH
+  become: true
+  ansible.builtin.systemd_service:
+    name: sshd.service
+    state: restarted
+    daemon_reload: true
+  when: sshd_private_only.changed or sshd_wait_network.changed
+
+# Cockpit authenticates against the system's own users, so the admin user needs a password even
+# though SSH itself only accepts keys.
+- name: Set user password
+  become: true
+  no_log: true
+  when: user_password | length > 0
+  ansible.builtin.user:
+    name: "{{ username }}"
+    password: "{{ user_password }}"
+
+- name: Install cockpit and cockpit-podman
+  become: true
+  ansible.builtin.dnf:
+    state: present
+    name:
+      - cockpit
+      - cockpit-podman
+      - cockpit-files
+
+- name: Create cockpit.socket.d directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/system/cockpit.socket.d
+    mode: "0755"
+    state: directory
+
+# FreeBind lets the socket bind before the private interface has its address, so Cockpit survives
+# starting ahead of NetworkManager.
+- name: Add dropin to configure listen IP for cockpit.socket
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cockpit.socket.d/10-listen-admin.conf
+    content: |
+      [Socket]
+      ListenStream=
+      ListenStream={{ private_ip }}:{{ cockpit_port }}
+      FreeBind=true
+    mode: "0644"
+
+- name: Remove cockpit login messages
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/issue.d/cockpit.issue
+    - /etc/motd.d/cockpit
+
+- name: Enable cockpit.socket
+  become: true
+  ansible.builtin.systemd_service:
+    name: cockpit.socket
+    enabled: true
+    daemon_reload: true
+    state: started

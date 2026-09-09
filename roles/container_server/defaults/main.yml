@@ -1,0 +1,60 @@
+---
+# This host sits on two networks. The public one carries the services the host exists to serve and
+# owns the only default route. The private one is for management: SSH and Cockpit listen there and
+# nowhere else, and it never becomes the default route, so replies to service traffic cannot leave
+# through the management side. Public and private describe the job each network does, not their
+# addressing — both are usually RFC1918 on a home or office LAN. The connection names below are
+# labels only, so a site that calls these networks Svc and Admin can just say so.
+
+# NetworkManager connection name for the public network
+public_network_name: Public
+
+# Interface the public network is wired to, e.g. ens18
+public_interface: ""
+
+# Address on the public network, without the prefix
+public_ip: ""
+public_prefix: 24
+
+# Default route for the whole host. Only the public network gets one.
+public_gateway: ""
+
+public_dns: []
+public_dns_search: ""
+
+# NetworkManager connection name for the private network
+private_network_name: Private
+
+# Interface the private network is wired to, e.g. ens19
+private_interface: ""
+
+# Address on the private network, without the prefix
+private_ip: ""
+private_prefix: 24
+
+private_dns: []
+private_dns_search: ""
+
+# Connections to delete. Cloud images ship auto-generated ones that compete with the static
+# configuration above for the same interfaces.
+removed_network_connections:
+  - Wired connection 1
+  - Wired connection 2
+
+# Admin user to configure, matching the one os_base creates. Fish becomes the login shell for this
+# user and for root.
+username: admin
+
+# Crypted password for the admin user, as produced by the `password_hash` filter — Cockpit needs a
+# password to let anyone log in. Empty leaves the existing password alone.
+user_password: ""
+
+# Port Cockpit listens on, reachable from the private network only
+cockpit_port: 9090
+
+# Stratis pool holding both podman's volumes and its image store. The device is consumed whole.
+stratis_pool_name: podman_vols
+stratis_pool_device: /dev/vdb
+
+# Version of the volume plugin that backs podman volumes with stratis filesystems
+podman_volume_stratis_version: 1.1.3

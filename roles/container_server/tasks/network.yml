@@ -1,0 +1,48 @@
+---
+- name: Configure the public network
+  become: true
+  community.general.nmcli:
+    state: present
+    conn_reload: true
+    conn_name: "{{ public_network_name }}"
+    type: ethernet
+    ifname: "{{ public_interface }}"
+    method4: manual
+    dns4: "{{ public_dns }}"
+    dns4_search: "{{ public_dns_search }}"
+    ip4: "{{ public_ip }}/{{ public_prefix }}"
+    gw4: "{{ public_gateway }}"
+
+# never_default4 keeps the management side from ever winning the default route: a host that answered
+# service traffic out of its private interface would be unreachable from everywhere else.
+- name: Configure the private network
+  become: true
+  community.general.nmcli:
+    state: present
+    conn_reload: true
+    conn_name: "{{ private_network_name }}"
+    type: ethernet
+    ifname: "{{ private_interface }}"
+    method4: manual
+    dns4: "{{ private_dns }}"
+    dns4_search: "{{ private_dns_search }}"
+    ip4: "{{ private_ip }}/{{ private_prefix }}"
+    never_default4: true
+
+- name: Start networks
+  become: true
+  community.general.nmcli:
+    state: up
+    conn_name: "{{ item }}"
+  with_items:
+    - "{{ public_network_name }}"
+    - "{{ private_network_name }}"
+
+- name: Delete remaining default networks
+  become: true
+  community.general.nmcli:
+    state: absent
+    conn_name: "{{ item }}"
+  with_items: "{{ removed_network_connections }}"
+
+# TODO: Setup nftables rules forbidding access to the private interface from Podman networks

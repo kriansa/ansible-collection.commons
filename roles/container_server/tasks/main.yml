@@ -1,0 +1,5 @@
+---
+- ansible.builtin.import_tasks: network.yml
+- ansible.builtin.import_tasks: remote_access.yml
+- ansible.builtin.import_tasks: stratis.yml
+- ansible.builtin.import_tasks: fish.yml

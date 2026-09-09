@@ -1,0 +1,17 @@
+galaxy_info:
+  description: "Prepares a dual-homed container host: networking, remote access, stratis-backed podman storage"
+  author: kriansa
+  license: Apache
+  min_ansible_version: "2.11"
+
+  platforms:
+    - name: EL
+      versions:
+        - "10"
+
+  galaxy_tags:
+    - containers
+    - stratis
+
+dependencies:
+  - role: kriansa.commons.podman

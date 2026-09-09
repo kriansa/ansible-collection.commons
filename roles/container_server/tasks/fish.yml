@@ -1,0 +1,47 @@
+---
+- name: Install fish shell
+  become: true
+  ansible.builtin.package:
+    name: fish
+    state: present
+
+- name: Set fish as default shell
+  become: true
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /usr/bin/fish
+  loop:
+    - root
+    - "{{ username }}"
+
+- name: Ensure fish conf.d directory exists for root
+  become: true
+  ansible.builtin.file:
+    path: /root/.config/fish/conf.d
+    state: directory
+    mode: "0700"
+
+- name: Ensure fish conf.d directory exists for {{ username }}
+  become: true
+  ansible.builtin.file:
+    path: "/home/{{ username }}/.config/fish/conf.d"
+    state: directory
+    mode: "0700"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+
+- name: Disable fish greeting for root
+  become: true
+  ansible.builtin.copy:
+    dest: /root/.config/fish/conf.d/greeting.fish
+    content: "set -g fish_greeting\n"
+    mode: "0644"
+
+- name: Disable fish greeting for {{ username }}
+  become: true
+  ansible.builtin.copy:
+    dest: "/home/{{ username }}/.config/fish/conf.d/greeting.fish"
+    content: "set -g fish_greeting\n"
+    mode: "0644"
+    owner: "{{ username }}"
+    group: "{{ username }}"

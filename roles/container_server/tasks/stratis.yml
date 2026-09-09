@@ -1,0 +1,84 @@
+---
+- name: Install stratis-cli
+  become: true
+  ansible.builtin.package:
+    name: stratis-cli
+
+- name: Install podman-volume-stratis
+  become: true
+  ansible.builtin.dnf:
+    name: https://github.com/kriansa/podman-volume-stratis/releases/download/v{{ podman_volume_stratis_version }}/podman-volume-stratis_{{ podman_volume_stratis_version }}_linux_amd64.rpm
+    disable_gpg_check: true
+    state: present
+
+- name: Ensure stratisd is running
+  become: true
+  ansible.builtin.systemd_service:
+    name: stratisd.service
+    state: started
+    enabled: true
+
+- name: Check if stratis pool exists
+  become: true
+  ansible.builtin.shell:
+    cmd: set -o pipefail && stratis pool list | grep -q {{ stratis_pool_name }}
+  changed_when: false
+  register: stratis_pool_check
+  failed_when: false
+
+- name: Create stratis pool for podman
+  become: true
+  when: stratis_pool_check.rc != 0
+  changed_when: true
+  ansible.builtin.command:
+    cmd: stratis pool create {{ stratis_pool_name }} {{ stratis_pool_device }}
+
+# Podman's image store lives on the pool rather than the root filesystem: images are the
+# fastest-growing thing on these hosts, and a root filesystem that fills up takes the whole machine
+# down, while the pool has room to spare. This store also holds podman's record of every container
+# and volume, so moving it means moving that record along with it — it cannot be rebuilt from the
+# quadlets alone, because the volume plugin refuses to create a volume whose filesystem already
+# exists, leaving every app unable to start.
+- name: Check if the container storage filesystem exists
+  become: true
+  ansible.builtin.shell:
+    cmd: set -o pipefail && stratis filesystem list {{ stratis_pool_name }} | grep -q container-storage
+  changed_when: false
+  register: stratis_storage_check
+  failed_when: false
+
+- name: Create stratis filesystem for the container storage
+  become: true
+  when: stratis_storage_check.rc != 0
+  changed_when: true
+  ansible.builtin.command:
+    cmd: stratis filesystem create {{ stratis_pool_name }} container-storage
+
+# `nofail` so a pool that is not ready cannot hang the boot. Containers still fail closed instead of
+# starting against an empty store: quadlet_app gives every .container a RequiresMountsFor on this
+# path, so they wait for this mount and refuse to run without it.
+- name: Mount the container storage
+  become: true
+  register: stratis_storage_mount
+  ansible.posix.mount:
+    path: /var/lib/containers/storage
+    src: /dev/stratis/{{ stratis_pool_name }}/container-storage
+    fstype: xfs
+    opts: defaults,x-systemd.requires=stratisd.service,nofail
+    state: mounted
+
+# A newly created filesystem carries no SELinux labels, and the confined container runtime can only
+# use its store when it is labelled container_var_lib_t.
+- name: Restore SELinux labels on the container storage
+  become: true
+  when: stratis_storage_mount.changed
+  changed_when: true
+  ansible.builtin.command:
+    cmd: restorecon -R /var/lib/containers/storage
+
+- name: Enable podman-volume-stratis
+  become: true
+  ansible.builtin.systemd_service:
+    name: podman-volume-stratis.service
+    state: started
+    enabled: true
