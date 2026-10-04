@@ -20,6 +20,13 @@ from ansible.template import trust_as_template  # type: ignore[import-not-found]
 
 # pylint: enable=import-error
 
+# Quadlet unit types, deployed where podman's generator picks them up
+VALID_QUADLET_EXTENSIONS = (".container", ".volume", ".network", ".pod", ".kube")
+
+# Plain systemd units, deployed from units/. Systemd reads these directly; podman's generator
+# never sees them.
+VALID_UNIT_EXTENSIONS = (".timer",)
+
 
 class ActionModule(ActionBase):  # pylint: disable=too-few-public-methods
     """Action plugin for quadlet_app - handles control node file operations."""
@@ -108,13 +115,17 @@ class ActionModule(ActionBase):  # pylint: disable=too-few-public-methods
             app_name: Application name for prefix function
 
         Returns:
-            Dict with 'quadlets', 'init', and 'config' file lists
+            Dict with 'quadlets', 'units', 'init', and 'config' file lists
         """
-        files_data = {"quadlets": [], "init": [], "config": []}
+        files_data = {"quadlets": [], "units": [], "init": [], "config": []}
 
         quadlets_dir = os.path.join(src_path, "quadlets")
         if os.path.isdir(quadlets_dir):
             files_data["quadlets"] = self._process_quadlet_files(quadlets_dir, app_name)
+
+        units_dir = os.path.join(src_path, "units")
+        if os.path.isdir(units_dir):
+            files_data["units"] = self._process_unit_files(units_dir, app_name)
 
         init_dir = os.path.join(src_path, "init")
         if os.path.isdir(init_dir):
@@ -129,20 +140,46 @@ class ActionModule(ActionBase):  # pylint: disable=too-few-public-methods
     def _process_quadlet_files(self, quadlets_dir, app_name):
         """Process all quadlet files in quadlets/ directory."""
         quadlet_files = []
-        valid_extensions = (".container", ".volume", ".network", ".pod", ".kube")
 
         for filename in sorted(os.listdir(quadlets_dir)):
-            if not filename.endswith(valid_extensions):
-                continue
-
             file_path = os.path.join(quadlets_dir, filename)
             if not os.path.isfile(file_path):
+                continue
+
+            if filename.endswith(VALID_UNIT_EXTENSIONS):
+                raise AnsibleError(
+                    f"{filename} is a systemd unit, not a quadlet. Move it to units/."
+                )
+
+            if not filename.endswith(VALID_QUADLET_EXTENSIONS):
                 continue
 
             content = self._template_file(file_path, app_name)
             quadlet_files.append({"name": filename, "content": content})
 
         return quadlet_files
+
+    def _process_unit_files(self, units_dir, app_name):
+        """Process all systemd unit files in units/ directory."""
+        unit_files = []
+
+        for filename in sorted(os.listdir(units_dir)):
+            file_path = os.path.join(units_dir, filename)
+            if not os.path.isfile(file_path):
+                continue
+
+            # Strays are rejected rather than skipped: unlike quadlets/, this directory has no
+            # history of holding anything else, so an unrecognized file is a mistake
+            if not filename.endswith(VALID_UNIT_EXTENSIONS):
+                raise AnsibleError(
+                    f"Unsupported file in units/: {filename}. "
+                    f"Only {', '.join(VALID_UNIT_EXTENSIONS)} files are supported."
+                )
+
+            content = self._template_file(file_path, app_name)
+            unit_files.append({"name": filename, "content": content})
+
+        return unit_files
 
     def _process_init_config_files(self, base_dir, app_name):
         """Process all files in init/ or config/ directory."""

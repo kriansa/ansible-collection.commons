@@ -15,6 +15,8 @@ myapp/
 │   ├── db.container       # Optional: Additional containers
 │   ├── data.volume        # Optional: Volumes
 │   └── app.network        # Optional: Networks
+├── units/                 # Optional: Plain systemd units
+│   └── backup.timer       # Schedules quadlets/backup.container
 ├── init/                  # Optional: One-time initialization files
 │   ├── main/              # Matches quadlet stem (main.container)
 │   │   └── init.sql
@@ -34,6 +36,12 @@ myapp/
   - Files are deployed to `/etc/containers/systemd/`
   - Resource names are automatically prefixed with app name when deployed
   - Contents in these files are automatically templated like `ansible.commons.template`
+  - A `.timer` here is an error — it is not a quadlet type and belongs in `units/`
+
+- **units/**: Plain systemd units, currently `.timer` files — see [Timers](#timers)
+  - Files are deployed to `/etc/systemd/system/`
+  - Unit references are prefixed and templated exactly as in `quadlets/`
+  - Anything with an unrecognized extension is rejected rather than ignored
 
 - **init/**: One-time initialization files mounted into containers
   - Subdirectories use the quadlet stem without suffix (e.g., `main/` for `main.container`)
@@ -221,6 +229,104 @@ container-relative ids straight to disk, and is skipped thereafter.
 - Failure signature when ownership is wrong: files show as `65534`, and writes fail with
   `Operation not permitted` even as root inside the container.
 
+## Timers
+
+A container that runs on a schedule is two files: the job itself in `quadlets/`, and a `.timer` in
+`units/` that fires it.
+
+```ini
+# quadlets/backup.container
+[Container]
+Image=docker.io/library/postgres:16
+Volume=dumps.volume:/dumps
+Exec=/usr/bin/pg_dumpall -f /dumps/dump.sql
+
+[Service]
+Type=oneshot
+```
+
+```ini
+# units/backup.timer
+[Timer]
+OnCalendar=daily
+Persistent=true
+```
+
+That is the whole app-facing surface. `Unit=` and `[Install]` are filled in for you, and the
+deployed file reads:
+
+```ini
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=myapp--backup.service
+
+[Install]
+WantedBy=timers.target
+```
+
+### Why it lives in its own directory
+
+Quadlet has no `.timer` type — it knows `.container`, `.volume`, `.network`, `.pod`, `.kube`,
+`.build`, `.image` and `.artifact`, and generates a `.service` from each. A timer is an ordinary
+systemd unit, so `quadlets/` is the wrong place for it twice over: podman's generator would ignore
+it, and `/etc/containers/systemd/` is a directory systemd itself never reads. It is deployed to
+`/etc/systemd/system/` instead, which is why it gets a directory of its own.
+
+### Naming what it triggers
+
+Writing `Unit=backup.container` is the natural thing to do and names a unit that does not exist —
+the generator emits `backup.service` from that file. The suffix is therefore rewritten to whatever
+podman will actually produce, and then prefixed like every other reference:
+
+| Written | Deployed |
+|---------|----------|
+| `Unit=backup.container` | `Unit=myapp--backup.service` |
+| `Unit=backup.kube` | `Unit=myapp--backup.service` |
+| `Unit=backup.pod` | `Unit=myapp--backup-pod.service` |
+| `Unit=data.volume` | `Unit=myapp--data-volume.service` |
+| `Unit=app.network` | `Unit=myapp--app-network.service` |
+| `Unit=backup.service` | `Unit=myapp--backup.service` |
+
+Omit `Unit=` entirely and `backup.timer` resolves against `backup.*` in `quadlets/`, picking the
+right suffix for whatever type it finds.
+
+**Targets are app-scoped.** Prefixing is unconditional, so a timer cannot drive a unit outside its
+own app — the same limitation `After=` and `Wants=` already have. Nothing checks that the target
+exists, so a typo deploys cleanly and then fails when the timer first fires.
+
+### Why these are enabled when nothing else is
+
+The module runs `systemctl enable` for timers and for nothing else. Quadlet-generated services are
+*transient*: they cannot be enabled at all, and the generator compensates by applying their
+`[Install]` section itself every time it runs. A `.timer` has neither property — it is a real file
+on disk and nothing will arm it unless something enables it.
+
+Enabling alone does not start a unit, and `timers.target` was reached long before Ansible connects,
+so the timer is enabled **and** started. Enabling on its own would leave it idle until the next
+reboot.
+
+This happens on every `state`, including `installed`. A timer whose own file changed is also
+restarted, so an edited `OnCalendar=` takes effect immediately rather than at the next boot.
+An unrelated edit elsewhere in the app does not touch it.
+
+### Constraints
+
+- **`RemainAfterExit=yes` silently breaks the schedule.** It is the usual advice for `Type=oneshot`,
+  but it leaves the job in a started state and every trigger after the first is a no-op. Leave it
+  off on a timer-driven container.
+- **The triggered container must not declare `[Install] WantedBy=multi-user.target`**, or it runs at
+  boot as well as on schedule.
+- **Restarting resets relative timers.** `OnBootSec=` and `OnUnitActiveSec=` count from the restart,
+  so editing such a timer restarts its countdown. `OnCalendar=` is unaffected.
+- Nothing removes a timer. Deleting it from `units/` leaves the deployed unit enabled and running;
+  `systemctl disable --now` it and delete the file by hand.
+
+```bash
+systemctl list-timers 'myapp--*'            # when does it next fire
+journalctl -u myapp--backup.service         # what happened when it did
+```
+
 ## Usage
 
 ### Basic Deployment
@@ -260,6 +366,9 @@ container-relative ids straight to disk, and is skipped thereafter.
 - **installed**: Deploy files and reload systemd, but don't manage service state
 - **started**: Deploy files and ensure the main service is running. If files changed and the service is already running, restarts all app-prefixed dependencies and the main service
 - **restarted**: Deploy files and restart all app-prefixed dependencies and the main service
+
+These describe the main service only. Timers are enabled and started under every state — see
+[Timers](#timers).
 
 ## Variable Templating
 
@@ -448,6 +557,48 @@ Volume=%config%:/app/config
 Driver=bridge
 ```
 
+### Scheduled Job
+
+```
+postgres/
+├── quadlets/
+│   ├── main.container      # The database
+│   ├── backup.container    # The job, run on demand only
+│   ├── app.network
+│   ├── data.volume
+│   └── dumps.volume
+└── units/
+    └── backup.timer        # When to run it
+```
+
+```ini
+# quadlets/backup.container
+# No [Install] section: this container runs when the timer says so, not at boot.
+# No RemainAfterExit either, or only the first trigger would do anything.
+[Unit]
+Requires=main.service
+After=main.service
+
+[Container]
+Image=docker.io/library/postgres:16
+Network=app.network
+Volume=dumps.volume:/dumps
+Environment=PGHOST={{ quadlet_app_name }}--main
+Exec=/usr/bin/pg_dumpall -f /dumps/dump.sql
+
+[Service]
+Type=oneshot
+
+# units/backup.timer
+[Timer]
+OnCalendar={{ backup_schedule | default('daily') }}
+Persistent=true
+```
+
+`Requires=` and `Network=` are prefixed automatically; `PGHOST` is a plain value, so it needs
+`quadlet_app_name` spelled out. See
+[Application Name Variable](#application-name-variable).
+
 ## Idempotency
 
 The module uses SHA256 checksums to detect file changes. Deployment only occurs when:
@@ -462,6 +613,9 @@ Services are named: `{appname}--{filename}.service`
 Examples:
 - `myapp--main.service` (from `main.container`)
 - `myapp--db.service` (from `db.container`)
+- `myapp--backend-pod.service` (from `backend.pod` — podman appends `-pod`)
+
+Units from `units/` keep their own suffix: `backup.timer` becomes `myapp--backup.timer`.
 
 ### Dependency Handling
 
@@ -488,6 +642,11 @@ journalctl -u myapp--main.service -f
 
 Generated units are deployed alongside the ones you wrote:
 - `{appname}--{volume}-volume-init.container`, one per volume declaring `X-Owner`
+
+### Systemd Units
+- Location: `/etc/systemd/system/`
+- Naming: `{appname}--{filename}`
+- Example: `myapp--backup.timer`
 
 ### Configuration Files
 - Init: `/srv/{appname}/init/{container}/`

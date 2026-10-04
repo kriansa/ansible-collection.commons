@@ -25,6 +25,7 @@ description:
     - Deploys Podman Quadlet applications with automatic resource prefixing
     - Templates all files with Jinja2 variables (handled by Ansible)
     - Preprocesses Quadlet files to add application name prefixes
+    - Deploys plain systemd units from units/, currently .timer files, and enables them
     - Manages init and config directories
     - Handles systemd service lifecycle (daemon-reload, start, enable)
     - Ensures idempotent deployments (only updates when files change)
@@ -32,7 +33,7 @@ description:
 options:
     src:
         description:
-            - Path to the application directory containing quadlets/, init/, config/
+            - Path to the application directory containing quadlets/, units/, init/, config/
             - Can be relative to playbook directory or absolute path
             - Must contain quadlets/main.container (required)
         required: true
@@ -93,6 +94,11 @@ notes:
     - Containers default to UserNS=auto:size=65536. A container that reads the host journal or
       other processes' /proc entries must declare UserNS=host, or it will half-work - those files
       read as nobody while world-readable ones keep succeeding.
+    - A .timer is not a Quadlet type. It belongs in units/, is deployed to /etc/systemd/system,
+      and is the one unit this module enables - nothing generates it, so nothing else would apply
+      its [Install] section.
+    - Timers are enabled and started on every state, including installed, and one whose file
+      changed is restarted so a new schedule takes effect immediately.
 """
 
 EXAMPLES = r"""
@@ -131,6 +137,13 @@ EXAMPLES = r"""
     src: podman-apps/unifi-network
     state: started
     systemctl_timeout: 300
+
+# An app with a scheduled job. quadlets/backup.container runs it, units/backup.timer schedules it,
+# and the timer is enabled and started regardless of the state requested here.
+- name: Deploy application with a nightly backup
+  kriansa.commons.quadlet_app:
+    src: podman-apps/postgres
+    state: started
 """
 
 RETURN = r"""
@@ -150,10 +163,15 @@ service_name:
     returned: always
     sample: "my-backend-app--main.service"
 quadlet_files:
-    description: List of deployed quadlet files
+    description: List of quadlet files deployed to /etc/containers/systemd
     type: list
     returned: always
     sample: ["my-app--main.container", "my-app--db.container", "my-app--data.volume"]
+unit_files:
+    description: List of plain systemd units deployed to /etc/systemd/system
+    type: list
+    returned: always
+    sample: ["my-app--backup.timer"]
 msg:
     description: Human-readable message about the operation
     type: str
@@ -164,6 +182,16 @@ msg:
 # Default deployment paths
 QUADLET_SYSTEMD_DIR = "/etc/containers/systemd"
 QUADLET_APP_BASE_DIR = "/srv"
+
+# Where plain systemd units go. A timer is not a quadlet type, so it has to be deployed as itself
+# rather than into the generator's directory, which systemd never reads.
+SYSTEMD_UNIT_DIR = "/etc/systemd/system"
+
+# Quadlet unit types, read from quadlets/
+VALID_QUADLET_EXTENSIONS = (".container", ".volume", ".network", ".pod", ".kube")
+
+# Plain systemd units, read from units/
+VALID_UNIT_EXTENSIONS = (".timer",)
 
 # Holds one marker per volume recording the ownership that was last applied to it. The marker
 # filename carries the uid/gid, so changing a volume's declared owner changes the path and the
@@ -201,9 +229,6 @@ class QuadletValidator:
     # Regex pattern for application name validation
     APP_NAME_PATTERN_SINGLE = r"^[a-z]$"
     APP_NAME_PATTERN_MULTI = r"^[a-z][a-z0-9_-]*[a-z0-9]$"
-
-    # Valid quadlet file extensions
-    VALID_QUADLET_EXTENSIONS = {".container", ".volume", ".network", ".pod", ".kube"}
 
     # Valid init/config subdirectory suffixes
     VALID_SUBDIR_SUFFIXES = {".container", ".pod"}
@@ -346,12 +371,14 @@ class QuadletFileDiscovery:  # pylint: disable=too-few-public-methods
         Returns:
             Dictionary with keys:
             - 'quadlets': List of (filename, full_path) for quadlet files
+            - 'units': List of (filename, full_path) for plain systemd unit files
             - 'init': List of (container_dir, relative_path, full_path) for init files
             - 'config': List of (container_dir, relative_path, full_path) for config files
         """
-        files: Dict[str, List] = {"quadlets": [], "init": [], "config": []}
+        files: Dict[str, List] = {"quadlets": [], "units": [], "init": [], "config": []}
 
         files["quadlets"] = self._discover_quadlet_files()
+        files["units"] = self._discover_unit_files()
         files["init"] = self._discover_init_files()
         files["config"] = self._discover_config_files()
 
@@ -367,20 +394,60 @@ class QuadletFileDiscovery:  # pylint: disable=too-few-public-methods
         quadlets_dir = os.path.join(self.src, "quadlets")
         quadlet_files = []
 
-        valid_extensions = (".container", ".volume", ".network", ".pod", ".kube")
-
         try:
             entries = os.listdir(quadlets_dir)
         except OSError as e:
             raise ValidationError(f"Cannot read quadlets directory: {e}") from e
 
         for filename in sorted(entries):  # Sort for consistent ordering
-            if filename.endswith(valid_extensions):
-                full_path = os.path.join(quadlets_dir, filename)
-                if os.path.isfile(full_path):
-                    quadlet_files.append((filename, full_path))
+            full_path = os.path.join(quadlets_dir, filename)
+            if not os.path.isfile(full_path):
+                continue
+
+            if filename.endswith(VALID_UNIT_EXTENSIONS):
+                raise ValidationError(
+                    f"{filename} is a systemd unit, not a quadlet. Move it to units/."
+                )
+
+            if filename.endswith(VALID_QUADLET_EXTENSIONS):
+                quadlet_files.append((filename, full_path))
 
         return quadlet_files
+
+    def _discover_unit_files(self) -> List[Tuple[str, str]]:
+        """
+        Discover all plain systemd unit files in units/ directory.
+
+        Returns:
+            List of (filename, full_path) tuples
+        """
+        units_dir = os.path.join(self.src, "units")
+        if not os.path.isdir(units_dir):
+            return []
+
+        unit_files = []
+
+        try:
+            entries = os.listdir(units_dir)
+        except OSError as e:
+            raise ValidationError(f"Cannot read units directory: {e}") from e
+
+        for filename in sorted(entries):  # Sort for consistent ordering
+            full_path = os.path.join(units_dir, filename)
+            if not os.path.isfile(full_path):
+                continue
+
+            # Strays are rejected rather than skipped: unlike quadlets/, this directory has no
+            # history of holding anything else, so an unrecognized file is a mistake
+            if not filename.endswith(VALID_UNIT_EXTENSIONS):
+                raise ValidationError(
+                    f"Unsupported file in units/: {filename}. "
+                    f"Only {', '.join(VALID_UNIT_EXTENSIONS)} files are supported."
+                )
+
+            unit_files.append((filename, full_path))
+
+        return unit_files
 
     def _discover_init_files(self) -> List[Tuple[str, str, str]]:
         """
@@ -443,7 +510,7 @@ class QuadletFileDiscovery:  # pylint: disable=too-few-public-methods
         return config_files
 
 
-class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
+class QuadletPreprocessor:
     """
     Handles preprocessing of quadlet files according to specification rules.
 
@@ -480,11 +547,28 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         ".network": ("Network", "NetworkName"),
     }
 
+    # The service podman's generator emits for each quadlet type, as the suffix replacing the
+    # quadlet's own. Something naming a quadlet as a systemd unit has to point at this rather than
+    # at the quadlet's filename.
+    QUADLET_SERVICE_SUFFIXES = {
+        ".container": ".service",
+        ".kube": ".service",
+        ".pod": "-pod.service",
+        ".volume": "-volume.service",
+        ".network": "-network.service",
+    }
+
+    # Target a timer activates when it does not name one itself
+    DEFAULT_TIMER_TARGET = "timers.target"
+
     # Directives to process for Rule 1
     RESOURCE_DIRECTIVES = {
         "Network",
         "Pod",
         "Volume",
+        # Names the unit a .timer activates. Not valid in any quadlet type, so it only ever
+        # matches in a plain systemd unit.
+        "Unit",
         # Systemd unit dependencies
         "Wants",
         "Requires",
@@ -507,6 +591,9 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         """
         self.app_name = app_name
         self.volume_owners = volume_owners or {}
+        # Quadlet stem -> extension, so a unit naming a quadlet can be pointed at the service
+        # podman will actually generate for it
+        self.quadlet_types: Dict[str, str] = {}
 
     def preprocess_quadlet_file(self, content: str, filename: str) -> str:
         """
@@ -570,6 +657,128 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             content = self._inject_default_userns(content)
 
         return content
+
+    def preprocess_unit_file(self, content: str, filename: str) -> str:
+        """
+        Apply preprocessing rules to a plain systemd unit file.
+
+        Only Rule 1 applies. The rest of the quadlet rules describe things a systemd unit does not
+        have: no %init%/%config% mounts, no resource to name, no user namespace, no image store to
+        order against.
+
+        Args:
+            content: File content (already templated by Ansible)
+            filename: Unit filename (e.g., "backup.timer")
+
+        Returns:
+            Preprocessed content
+        """
+        file_ext = Path(filename).suffix
+
+        processed_lines = []
+        for line in content.split("\n"):
+            if not line.strip() or line.strip().startswith("#"):
+                processed_lines.append(line)
+                continue
+
+            # Suffix first, prefix second: Unit=backup.pod has to become backup-pod.service before
+            # Rule 1 turns it into myapp--backup-pod.service
+            if file_ext == ".timer":
+                line = self._resolve_timer_unit(line)
+
+            processed_lines.append(self._apply_rule1_prefix_resources(line))
+
+        content = "\n".join(processed_lines)
+
+        # Injected last, and deliberately after Rule 1: these values are already app-prefixed, and
+        # Rule 1 would prefix them a second time
+        if file_ext == ".timer":
+            content = self._inject_timer_defaults(content, filename)
+
+        return content
+
+    def _resolve_timer_unit(self, line: str) -> str:
+        """
+        Point a timer's Unit= at the service podman generates, rather than at the quadlet.
+
+        Writing Unit=backup.container is the natural thing to do, but no unit by that name ever
+        exists - the generator emits backup.service from it.
+
+        Args:
+            line: Single line from a .timer file
+
+        Returns:
+            Line with the quadlet suffix swapped for the generated service's
+        """
+        stripped = line.lstrip()
+        if not stripped.startswith("Unit="):
+            return line
+
+        value = stripped[len("Unit="):].strip()
+        suffix = self.QUADLET_SERVICE_SUFFIXES.get(Path(value).suffix)
+        if suffix is None:
+            return line
+
+        leading_ws = line[: len(line) - len(stripped)]
+        return f"{leading_ws}Unit={Path(value).stem}{suffix}"
+
+    def _inject_timer_defaults(self, content: str, filename: str) -> str:
+        """
+        Add the directives a timer needs to do anything at all.
+
+        Without a WantedBy, `systemctl enable` is a no-op and the timer never arms on boot. Unit=
+        is injected only for readability - systemd would default to the same basename anyway - but
+        spelling it out makes the deployed file say what it triggers.
+
+        Args:
+            content: File content, after Rule 1
+            filename: Timer filename (e.g., "backup.timer")
+
+        Returns:
+            Content with the defaults in place
+        """
+        # A timer with no [Timer] section is broken whatever we do, and opening one here would
+        # only hide that behind a file that still never fires
+        if self._has_section(content, "Timer") and not self._has_directive(content, "Unit"):
+            target = self._timer_target_unit(filename)
+            content = self._append_to_section(content, "Timer", [f"Unit={target}"])
+
+        if not self._has_directive(content, "WantedBy"):
+            content = self._append_to_section(
+                content, "Install", [f"WantedBy={self.DEFAULT_TIMER_TARGET}"], at_end=True
+            )
+
+        return content
+
+    def _timer_target_unit(self, filename: str) -> str:
+        """
+        Name the service a timer triggers when it does not say so itself.
+
+        Args:
+            filename: Timer filename (e.g., "backup.timer")
+
+        Returns:
+            Prefixed service name (e.g. "myapp--backup.service")
+        """
+        stem = Path(filename).stem
+        quadlet_ext = self.quadlet_types.get(stem)
+        suffix = self.QUADLET_SERVICE_SUFFIXES.get(quadlet_ext, ".service")
+        return f"{self.app_name}--{stem}{suffix}"
+
+    @staticmethod
+    def _has_section(content: str, section: str) -> bool:
+        """
+        Check whether a section header appears.
+
+        Args:
+            content: File content
+            section: Section name without brackets (e.g. "Timer")
+
+        Returns:
+            True if the section is present
+        """
+        header = f"[{section}]"
+        return any(line.strip() == header for line in content.split("\n"))
 
     def _inject_default_userns(self, content: str) -> str:
         """
@@ -737,7 +946,9 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         return False
 
     @staticmethod
-    def _append_to_section(content: str, section: str, directives: List[str]) -> str:
+    def _append_to_section(
+        content: str, section: str, directives: List[str], at_end: bool = False
+    ) -> str:
         """
         Append directives to a section, creating the section when it is absent.
 
@@ -745,6 +956,8 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
             content: File content
             section: Section name without brackets (e.g. "Unit")
             directives: Lines to add
+            at_end: Open a missing section at the end of the file rather than the top. [Install]
+                reads as an afterthought and belongs last; [Unit] belongs first.
 
         Returns:
             Content with the directives in place
@@ -759,6 +972,13 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
                 break
 
         if start is None:
+            if at_end:
+                # Trailing blank lines belong before the new section, not inside it
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                separator = [""] if lines else []
+                return "\n".join(lines + separator + [header] + directives + [""])
+
             # No such section - open one at the top so it precedes everything else
             return "\n".join([header] + directives + [""] + lines)
 
@@ -839,6 +1059,7 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
                 ".container",
                 ".kube",
                 ".service",
+                ".timer",
             )
             if value.endswith(quadlet_extensions):
                 # Only prefix if it doesn't start with / (not absolute path)
@@ -993,7 +1214,7 @@ class QuadletPreprocessor:  # pylint: disable=too-few-public-methods
         return "\n".join(all_lines)
 
 
-class QuadletIdempotency:  # pylint: disable=too-few-public-methods
+class QuadletIdempotency:
     """Handles idempotency checking using file checksums."""
 
     def __init__(self, app_name: str, force: bool):
@@ -1023,12 +1244,12 @@ class QuadletIdempotency:  # pylint: disable=too-few-public-methods
             return True
 
         for dest_path, new_content in processed_files.items():
-            if self._file_changed(dest_path, new_content):
+            if self.file_changed(dest_path, new_content):
                 return True
 
         return False
 
-    def _file_changed(self, dest_path: str, new_content: str) -> bool:
+    def file_changed(self, dest_path: str, new_content: str) -> bool:
         """
         Check if a file has changed by comparing checksums.
 
@@ -1102,12 +1323,16 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
 
         # Paths
         self.quadlet_dest = QUADLET_SYSTEMD_DIR
+        self.unit_dest = SYSTEMD_UNIT_DIR
         self.srv_base: str | None = None  # Set after app_name validation
 
         # Volume stem -> "uid:gid", from X-Owner. Populated while processing quadlets.
         self.volume_owners: Dict[str, str] = {}
         # Quadlet files this module derives rather than reads from the app directory
         self.generated_quadlets: List[str] = []
+        # Deployed timer unit name -> whether its file content changed this run. Recorded before
+        # deployment overwrites the files, so the systemd phase can still tell them apart.
+        self.timer_changes: Dict[str, bool] = {}
 
         # Initialize components
         self.validator: QuadletValidator | None = None
@@ -1149,16 +1374,22 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 # Files already templated by action plugin
                 processed_files = self._process_files_from_action_plugin()
                 quadlet_names = [f["name"] for f in self.files_data["quadlets"]]
+                unit_names = [f["name"] for f in self.files_data.get("units", [])]
             else:
                 # Discover and read files locally (fallback mode)
                 self.discovery = QuadletFileDiscovery(self.src)
                 discovered_files = self.discovery.discover_all_files()
                 processed_files = self._process_files(discovered_files)
                 quadlet_names = [name for name, _ in discovered_files["quadlets"]]
+                unit_names = [name for name, _ in discovered_files["units"]]
 
             deployed_quadlets = [
                 f"{self.app_name}--{name}" for name in quadlet_names
             ] + self.generated_quadlets
+            deployed_units = [f"{self.app_name}--{name}" for name in unit_names]
+
+            # Which timers changed has to be read before deployment overwrites them
+            self._record_timer_changes(processed_files)
 
             # Phase 4: Check idempotency
             needs_update = self.idempotency.needs_deployment(processed_files)
@@ -1174,6 +1405,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                     application_name=self.app_name,
                     service_name=service_name,
                     quadlet_files=deployed_quadlets,
+                    unit_files=deployed_units,
                     msg="application already up to date",
                 )
 
@@ -1194,6 +1426,7 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 application_name=self.app_name,
                 service_name=service_name,
                 quadlet_files=deployed_quadlets,
+                unit_files=deployed_units,
                 msg=self._get_success_message(),
             )
 
@@ -1218,7 +1451,12 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             filename: self._read_file(full_path)
             for filename, full_path in discovered_files["quadlets"]
         }
+        unit_contents = {
+            filename: self._read_file(full_path)
+            for filename, full_path in discovered_files["units"]
+        }
         processed = self._process_quadlets(quadlet_contents)
+        processed.update(self._process_units(unit_contents))
 
         # init and config files are deployed verbatim - no preprocessing
         for kind in ("init", "config"):
@@ -1242,7 +1480,9 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         assert self.srv_base is not None
 
         quadlet_contents = {f["name"]: f["content"] for f in self.files_data["quadlets"]}
+        unit_contents = {f["name"]: f["content"] for f in self.files_data.get("units", [])}
         processed = self._process_quadlets(quadlet_contents)
+        processed.update(self._process_units(unit_contents))
 
         # init and config files are deployed verbatim - no preprocessing
         for kind in ("init", "config"):
@@ -1270,6 +1510,11 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         self.volume_owners = self._collect_volume_owners(quadlet_contents)
         self.preprocessor.volume_owners = self.volume_owners
 
+        # Lets a unit in units/ be pointed at the service podman generates for a given quadlet
+        self.preprocessor.quadlet_types = {
+            Path(filename).stem: Path(filename).suffix for filename in quadlet_contents
+        }
+
         processed = {}
 
         for filename, content in quadlet_contents.items():
@@ -1284,6 +1529,47 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             )
 
         return processed
+
+    def _process_units(self, unit_contents: Dict[str, str]) -> Dict[str, str]:
+        """
+        Preprocess plain systemd unit files.
+
+        Must run after _process_quadlets, which tells the preprocessor what each quadlet is - a
+        timer naming one has to be pointed at the service podman generates from it.
+
+        Args:
+            unit_contents: Maps unit filename -> raw (already templated) content
+
+        Returns:
+            Dict mapping destination_path -> content
+        """
+        assert self.preprocessor is not None
+
+        return {
+            os.path.join(self.unit_dest, f"{self.app_name}--{filename}"):
+                self.preprocessor.preprocess_unit_file(content, filename)
+            for filename, content in unit_contents.items()
+        }
+
+    def _record_timer_changes(self, processed_files: Dict[str, str]):
+        """
+        Note which timers have new content, before deployment overwrites them.
+
+        A timer only needs restarting when its own file changed - restarting one because an
+        unrelated container was edited would reset the countdown of every relative timer in the app
+        on every deploy.
+
+        Args:
+            processed_files: Dict mapping destination_path -> content
+        """
+        assert self.idempotency is not None
+
+        for dest_path, content in processed_files.items():
+            if not dest_path.endswith(".timer"):
+                continue
+            self.timer_changes[os.path.basename(dest_path)] = self.force or (
+                self.idempotency.file_changed(dest_path, content)
+            )
 
     def _collect_volume_owners(self, quadlet_contents: Dict[str, str]) -> Dict[str, str]:
         """
@@ -1477,6 +1763,11 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             self._restart_volume_init_units()
             service_changed = True
 
+        # Timers are reconciled on every state, main service or not, and only after the reload
+        # above - systemd has not seen a newly written unit file before that
+        if self._reconcile_timers():
+            service_changed = True
+
         # Determine if we need to restart dependencies and main service
         needs_restart = False
         if self.state == "restarted":
@@ -1499,6 +1790,36 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             service_changed = True
 
         return service_changed
+
+    def _reconcile_timers(self) -> bool:
+        """
+        Bring every deployed timer to enabled and running.
+
+        This is the one place the module runs `systemctl enable`, and the reason is that a timer is
+        not a quadlet. Podman's generator applies the [Install] section of the units it generates
+        itself - they are transient and cannot be enabled at all - so the module never has to. A
+        timer is an ordinary unit file that systemd will not arm unless somebody enables it, and
+        nobody else is going to.
+
+        Returns:
+            True if any timer was touched
+        """
+        changed = False
+
+        for timer in sorted(self.timer_changes):
+            if not self._is_unit_enabled(timer):
+                self._systemctl(["enable", timer])
+                changed = True
+
+            # Covers both reasons to run it: it is not running at all, or its schedule moved and
+            # systemd is still holding the elapse computed from the old one. Enabling alone would
+            # not do it - timers.target was reached long before this runs, so a newly enabled
+            # timer sits dead until the next boot.
+            if self.timer_changes[timer] or not self._is_service_active(timer):
+                self._systemctl(["restart", timer])
+                changed = True
+
+        return changed
 
     def _restart_volume_init_units(self):
         """
@@ -1638,6 +1959,11 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         Returns:
             True if service state doesn't match desired state
         """
+        # Checked before the state branches: a timer someone stopped or disabled by hand has to
+        # bring the module past its early exit, whatever state the main service is in
+        if self._has_stale_timer():
+            return True
+
         if self.state == "started":
             # Need to start if not currently active
             return not self._is_service_active(service_name)
@@ -1646,6 +1972,18 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             return True
 
         return False
+
+    def _has_stale_timer(self) -> bool:
+        """
+        Check whether any deployed timer is not enabled or not running.
+
+        Returns:
+            True if at least one timer needs reconciling
+        """
+        return any(
+            not self._is_unit_enabled(timer) or not self._is_service_active(timer)
+            for timer in self.timer_changes
+        )
 
     def _is_service_active(self, service_name: str) -> bool:
         """
@@ -1666,6 +2004,28 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
                 timeout=10,
             )
             return result.returncode == 0 and result.stdout.strip() == "active"
+        except Exception:  # pylint: disable=broad-exception-caught
+            return False
+
+    def _is_unit_enabled(self, unit_name: str) -> bool:
+        """
+        Check if a unit is enabled for auto-start.
+
+        Args:
+            unit_name: Unit name to check
+
+        Returns:
+            True if the unit is enabled
+        """
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-enabled", unit_name],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            return result.returncode == 0 and result.stdout.strip() == "enabled"
         except Exception:  # pylint: disable=broad-exception-caught
             return False
 
