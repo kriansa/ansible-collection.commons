@@ -2077,7 +2077,9 @@ def main():
             "systemctl_timeout": {"type": "int", "default": 120},
             # Internal parameters used by action plugin
             "_control_node_processed": {"type": "bool", "default": False, "required": False},
-            "_files_data": {"type": "dict", "required": False},
+            # Carries the rendered content of every app file, secrets included. Without no_log,
+            # Ansible writes it into the managed host's journal on every run.
+            "_files_data": {"type": "dict", "required": False, "no_log": True},
         },
         supports_check_mode=False,
     )
