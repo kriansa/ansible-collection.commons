@@ -54,9 +54,8 @@
   ansible.builtin.command:
     cmd: stratis filesystem create {{ stratis_pool_name }} container-storage
 
-# `nofail` so a pool that is not ready cannot hang the boot. Containers still fail closed instead of
-# starting against an empty store: quadlet_app gives every .container a RequiresMountsFor on this
-# path, so they wait for this mount and refuse to run without it.
+# `nofail` so a pool that is not ready cannot hang the boot. Nothing else waits for this mount by
+# default, so every quadlet unit is made to wait for it below.
 - name: Mount the container storage
   become: true
   register: stratis_storage_mount
@@ -75,6 +74,35 @@
   changed_when: true
   ansible.builtin.command:
     cmd: restorecon -R /var/lib/containers/storage
+
+# After every reboot, podman's record of containers and volumes on this mount still describes the
+# previous boot. The first podman command of each boot clears it, and leaves a marker in /run so
+# that later commands skip the clearing. That marker is not tied to the record it vouches for. If a
+# quadlet unit runs podman before this mount is in place, the clearing lands on whatever sits in the
+# empty directory underneath, and the real record is never cleared. Podman then believes volumes are
+# still mounted when they are not, and hands containers an empty directory instead of their data.
+#
+# Quadlet's .network and .volume units run podman as soon as the network is up, which can be well
+# before stratisd has the pool ready. Quadlet reads a drop-in directory per unit type, so these make
+# every quadlet unit on the host wait for the mount, whichever tool deployed it.
+- name: Create the quadlet drop-in directories for each unit type
+  become: true
+  ansible.builtin.file:
+    path: /etc/containers/systemd/{{ item }}.d
+    state: directory
+    mode: "0755"
+  loop: [container, network, volume, pod, kube, image, build]
+
+- name: Make every quadlet unit wait for the container storage
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/containers/systemd/{{ item }}.d/10-container-storage.conf
+    content: |
+      [Unit]
+      RequiresMountsFor=/var/lib/containers/storage
+    mode: "0644"
+  loop: [container, network, volume, pod, kube, image, build]
+  notify: Regenerate the quadlet units
 
 - name: Enable podman-volume-stratis
   become: true

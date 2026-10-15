@@ -11,6 +11,12 @@ On top of that it sets up remote access (SSH restricted to the private address, 
 address), a stratis pool that backs both podman's volumes and its image store, and fish as the login
 shell for root and the admin user.
 
+The image store is mounted with `nofail`, so boot does not wait for it. The role therefore makes
+every quadlet unit wait for that mount, through drop-ins in `/etc/containers/systemd/<type>.d/`.
+Podman clears its record of containers and volumes once per boot, on the first podman command of
+any kind. If that command runs before the mount, the clearing lands on a stale copy underneath it,
+and podman goes on believing that volumes from the previous boot are still mounted.
+
 Podman itself comes from the `podman` role, which this one depends on.
 
 Role Variables
