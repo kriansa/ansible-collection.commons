@@ -17,6 +17,11 @@ Podman clears its record of containers and volumes once per boot, on the first p
 any kind. If that command runs before the mount, the clearing lands on a stale copy underneath it,
 and podman goes on believing that volumes from the previous boot are still mounted.
 
+Quadlet volumes default to the stratis plugin, and wait for it to be running, through
+`/etc/containers/systemd/volume.d/20-stratis.conf`, so a `.volume` file only needs its size and
+options. That file is read after the `.volume` itself, so a `Driver=` in a `.volume` file is ignored:
+a volume that needs another driver has to set it from its own `<name>.volume.d/` directory.
+
 Podman itself comes from the `podman` role, which this one depends on.
 
 Role Variables

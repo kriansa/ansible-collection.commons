@@ -104,6 +104,25 @@
   loop: [container, network, volume, pod, kube, image, build]
   notify: Regenerate the quadlet units
 
+# Every podman volume on this host lives on the pool, so quadlet volumes default to the stratis
+# plugin instead of each .volume file repeating it. The plugin has to be running before podman can
+# create or mount one of its volumes, hence the ordering. Quadlet reads this file after the .volume
+# itself, so a Driver= written in a .volume file is overridden here rather than respected: a volume
+# that genuinely needs another driver has to override it from its own <name>.volume.d/ directory.
+- name: Make every quadlet volume use the stratis plugin
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/containers/systemd/volume.d/20-stratis.conf
+    content: |
+      [Unit]
+      After=podman-volume-stratis.service
+      Requires=podman-volume-stratis.service
+
+      [Volume]
+      Driver=stratis
+    mode: "0644"
+  notify: Regenerate the quadlet units
+
 - name: Enable podman-volume-stratis
   become: true
   ansible.builtin.systemd_service:
