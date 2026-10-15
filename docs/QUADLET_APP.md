@@ -619,12 +619,25 @@ Units from `units/` keep their own suffix: `backup.timer` becomes `myapp--backup
 
 ### Dependency Handling
 
-When using `state=restarted` or when `state=started` with file changes, the module automatically:
-1. Discovers all app-prefixed service dependencies of the main service
-2. Restarts all dependencies first
-3. Then restarts the main service
+When using `state=restarted`, or `state=started` with file changes while the main service is running,
+the module:
+1. Discovers all app-prefixed service dependencies of the main service — everything it `Requires=`
+   or `Wants=`, directly or not
+2. Restarts them, the main service, and any volume bootstrap unit whose `X-Owner` changed, in a
+   single `systemctl restart`
 
-This ensures that when you update your application, all related services (databases, caches, workers, etc.) are restarted in the correct order.
+One call means one systemd transaction, so every unit stops and starts exactly once, in dependency
+order, with a bootstrap unit finishing before the containers that mount its volume start. This
+ensures that when you update your application, all related services (databases, caches, workers,
+etc.) are restarted in the correct order.
+
+Whether the main service "is running" is read once, before the module restarts anything. Asking
+later is unreliable: restarting a volume's bootstrap unit makes systemd restart every container that
+requires it, main included, so a later check can find main mid-restart — `activating`, and longest
+for a unit that waits on a healthcheck (`Notify=healthy`). The module would then only start main
+instead of restarting the app, and a changed secondary container that main merely `Wants=` would
+keep running its old image. For the same reason, bootstrap units whose `X-Owner` did not change are
+never restarted.
 
 Manage services manually:
 ```bash

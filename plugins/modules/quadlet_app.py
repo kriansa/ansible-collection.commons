@@ -1333,6 +1333,13 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         # Deployed timer unit name -> whether its file content changed this run. Recorded before
         # deployment overwrites the files, so the systemd phase can still tell them apart.
         self.timer_changes: Dict[str, bool] = {}
+        # Generated ownership bootstrap services whose file content changed this run. Recorded
+        # before deployment overwrites the files, for the same reason as timer_changes.
+        self.volume_init_changes: List[str] = []
+        # Whether the main service was running before this run restarted anything. It has to be
+        # read up front: restarting a bootstrap unit also restarts every container that requires
+        # it, so asking afterwards can catch main halfway through that restart and get "no".
+        self.main_was_active = False
 
         # Initialize components
         self.validator: QuadletValidator | None = None
@@ -1388,14 +1395,17 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             ] + self.generated_quadlets
             deployed_units = [f"{self.app_name}--{name}" for name in unit_names]
 
-            # Which timers changed has to be read before deployment overwrites them
+            # Which timers and bootstrap units changed has to be read before deployment overwrites
+            # them
             self._record_timer_changes(processed_files)
+            self._record_volume_init_changes(processed_files)
 
             # Phase 4: Check idempotency
             needs_update = self.idempotency.needs_deployment(processed_files)
 
             # Also check if service state needs management
             service_name = f"{self.app_name}--main.service"
+            self.main_was_active = self._is_service_active(service_name)
             needs_service_management = self._needs_service_management(service_name)
 
             if not needs_update and not needs_service_management:
@@ -1760,7 +1770,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         if self.changed:
             self._validate_quadlet_syntax()
             self._systemctl(["daemon-reload"])
-            self._restart_volume_init_units()
             service_changed = True
 
         # Timers are reconciled on every state, main service or not, and only after the reload
@@ -1773,23 +1782,47 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
         if self.state == "restarted":
             # Always restart when restarted state is requested
             needs_restart = True
-        elif self.state == "started" and self.changed and self._is_service_active(service_name):
-            # Restart if files changed and service is already running
+        elif self.state == "started" and self.changed and self.main_was_active:
+            # Restart if files changed and service was running when this run began
             needs_restart = True
 
-        # Restart dependencies and main service if needed
         if needs_restart:
-            # Restart all app-prefixed dependencies first
-            self._restart_dependencies(service_name)
-            # Then restart the main service
-            self._systemctl(["restart", service_name])
+            self._restart_app(service_name)
             service_changed = True
-        elif self.state == "started" and not self._is_service_active(service_name):
-            # Start service if not already active (no restart needed)
-            self._systemctl(["start", service_name])
-            service_changed = True
+        else:
+            # Main is not being restarted, but a changed owner still has to be applied - and
+            # before main mounts the volume, if it is about to be started below
+            self._restart_volume_init_units()
+            if self.state == "started" and not self._is_service_active(service_name):
+                # Start service if not already active (no restart needed)
+                self._systemctl(["start", service_name])
+                service_changed = True
 
         return service_changed
+
+    def _restart_app(self, service_name: str):
+        """
+        Restart the main service, every app unit it depends on, and the changed bootstrap units.
+
+        All of them go to systemd in one call, so it builds a single transaction: each unit stops
+        and starts once, in dependency order, and a bootstrap unit finishes before the containers
+        mounting its volume start. Split into separate calls, a unit that requires one restarted
+        earlier is restarted again by systemd on its own - which is how main used to go round two
+        or three times per deploy.
+
+        The bootstrap units main depends on but whose files did not change are left out. Restarting
+        one does nothing useful - its marker makes the condition fail and the unit is skipped - and
+        it would still take down every container that requires it.
+
+        Args:
+            service_name: Main service name
+        """
+        all_init_units = {f"{Path(name).stem}.service" for name in self.generated_quadlets}
+        dependencies = [
+            unit for unit in self._get_app_dependencies(service_name) if unit not in all_init_units
+        ]
+        units = self.volume_init_changes + dependencies + [service_name]
+        self._systemctl(["restart"] + list(dict.fromkeys(units)))
 
     def _reconcile_timers(self) -> bool:
         """
@@ -1821,9 +1854,28 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
 
         return changed
 
+    def _record_volume_init_changes(self, processed_files: Dict[str, str]):
+        """
+        Note which ownership bootstrap units have new content, before deployment overwrites them.
+
+        A bootstrap unit's file changes when its volume's X-Owner does, or when the volume is new,
+        and only then does it need re-running. Restarting one is not free even when its marker makes
+        it skip: systemd restarts every unit that requires it, which is every container mounting
+        that volume.
+
+        Args:
+            processed_files: Dict mapping destination_path -> content
+        """
+        assert self.idempotency is not None
+
+        for name in self.generated_quadlets:
+            dest_path = os.path.join(self.quadlet_dest, name)
+            if self.force or self.idempotency.file_changed(dest_path, processed_files[dest_path]):
+                self.volume_init_changes.append(f"{Path(name).stem}.service")
+
     def _restart_volume_init_units(self):
         """
-        Re-run the generated ownership bootstrap units.
+        Re-run the ownership bootstrap units whose files changed.
 
         They are Type=oneshot with RemainAfterExit=yes, so once one has run it stays active and
         systemd never re-checks its condition. Changing X-Owner rewrites the unit and drops the old
@@ -1832,13 +1884,9 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
 
         These cannot be picked up by the dependency walk in _get_app_dependencies: that starts from
         the main service, and a volume mounted only by a secondary container is not in its tree.
-
-        Restarting is cheap when nothing changed. The marker still exists, so the condition fails
-        and systemd skips the unit without starting a container.
         """
-        units = [f"{Path(name).stem}.service" for name in self.generated_quadlets]
-        if units:
-            self._systemctl(["restart"] + units)
+        if self.volume_init_changes:
+            self._systemctl(["restart"] + self.volume_init_changes)
 
     def _get_app_dependencies(self, service_name: str) -> List[str]:
         """
@@ -1885,26 +1933,6 @@ class QuadletAppModule:  # pylint: disable=too-few-public-methods
             # systemctl not found - this is a fatal error
             self.module.fail_json(msg=f"systemctl command not found: {e}")
             return []  # unreachable, but for type checking
-
-    def _restart_dependencies(self, service_name: str):
-        """
-        Restart all app-prefixed dependencies of the service.
-
-        Args:
-            service_name: Main service name to find dependencies for
-
-        Raises:
-            Fails the module if any dependency restart fails
-        """
-        dependencies = self._get_app_dependencies(service_name)
-
-        if not dependencies:
-            # No dependencies to restart
-            return
-
-        # Restart all dependencies
-        # We restart them all together for efficiency
-        self._systemctl(["restart"] + dependencies)
 
     def _validate_quadlet_syntax(self):
         """Validate quadlet files syntax using podman-system-generator dry run."""
