@@ -33,12 +33,12 @@
   when: remove_bloat
   become: true
   block:
+    # gssproxy and rpcbind are not listed: nfs-utils depends on both, and removing either one makes
+    # dnf take nfs-utils out with it, which silently breaks NFS mounts at the next boot.
     - name: Remove packages
       ansible.builtin.dnf:
         state: absent
         name:
-          - gssproxy
-          - rpcbind
           - sssd*
           - slang
 
