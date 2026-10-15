@@ -19,6 +19,13 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+# A removed unit that had failed stays listed as failed until systemd is told to forget it.
+- name: Forget the failed kdump unit
+  become: true
+  ansible.builtin.command: systemctl reset-failed kdump.service
+  changed_when: true
+  failed_when: false
+
 - name: Restart ssh
   become: true
   ansible.builtin.systemd:

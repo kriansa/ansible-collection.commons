@@ -1,0 +1,39 @@
+---
+# kdump keeps a spare kernel loaded so that, when the running kernel crashes, it can boot into it
+# and save the crashed kernel's memory for later analysis. Loading that spare kernel needs kexec,
+# which security_hardening.yml disables (kernel.kexec_load_disabled), so here kdump can never work:
+# it fails at every boot and still keeps memory reserved for a kernel it cannot load.
+#
+# The packages are named one by one rather than removed with autoremove, which would also take
+# out any unrelated package that happens to be unused. makedumpfile and kexec-tools exist only to
+# serve kdump.
+- name: Remove kdump
+  when: '"kdump-utils" in ansible_facts.packages or "kexec-tools" in ansible_facts.packages'
+  become: true
+  block:
+    - name: Remove kdump packages
+      ansible.builtin.dnf:
+        name:
+          - kdump-utils
+          - makedumpfile
+          - kexec-tools
+        state: absent
+      notify: Forget the failed kdump unit
+
+# The memory is reserved by a crashkernel= argument in every boot entry. Removing kdump-utils above
+# also removes the hook that adds it to each newly installed kernel, so this only has to clean up
+# the entries that already exist. It takes effect at the next reboot; nothing is broken in the
+# meantime, so no reboot is requested for it.
+- name: Find crash kernel reservations in the boot entries
+  become: true
+  ansible.builtin.command: grubby --info=ALL
+  register: os_base_boot_entries
+  changed_when: false
+  failed_when: false
+  check_mode: false  # read-only, so a preview can show which reservations would go
+
+- name: Stop reserving memory for a crash kernel
+  become: true
+  ansible.builtin.command: grubby --update-kernel=ALL --remove-args={{ item }}
+  changed_when: true
+  loop: "{{ os_base_boot_entries.stdout | regex_findall('crashkernel=[^\\s\"]+') | unique }}"
