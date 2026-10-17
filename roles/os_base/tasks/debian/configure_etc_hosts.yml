@@ -1,0 +1,17 @@
+---
+# Debian names the machine itself on the 127.0.1.1 line. Setting the hostname doesn't rewrite it, so
+# without this the file keeps whatever name the OS image shipped with. Armbian also adds its image
+# name to the ::1 line, which stock Debian leaves as plain localhost.
+- name: Point 127.0.1.1 at the current hostname
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1\t{{ hostname }}{{ (' ' ~ hostname.split('.')[0]) if '.' in hostname else '' }}"
+
+- name: Keep only the stock localhost names on the ::1 line
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^::1\s'
+    line: "::1\t\tlocalhost ip6-localhost ip6-loopback"

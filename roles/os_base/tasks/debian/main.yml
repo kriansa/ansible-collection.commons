@@ -6,4 +6,5 @@
 - import_tasks: configure_logging.yml
 - import_tasks: remove_netplan.yml
 - import_tasks: clear_motd.yml
+- import_tasks: configure_etc_hosts.yml
 - import_tasks: add_timeout_to_uuidd.yml
