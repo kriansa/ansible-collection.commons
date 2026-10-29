@@ -42,16 +42,9 @@ When calling the roles you just need to ensure the folder structure is followed.
 
 ## Modules
 
-### quadlet_app
-
-Deploy Podman Quadlet applications with an opinionated, structured approach. See the [quadlet_app documentation](docs/QUADLET_APP.md) for details.
-
-```yaml
-- name: Deploy application
-  kriansa.commons.quadlet_app:
-    src: apps/myapp
-    state: started
-```
+The `quadlet_app` module that used to live here is now its own collection,
+[kriansa.quadlet](https://github.com/kriansa/ansible-collection.quadlet), as
+`kriansa.quadlet.quadlet_app`.
 
 ## License
 
