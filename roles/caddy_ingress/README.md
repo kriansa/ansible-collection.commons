@@ -21,8 +21,9 @@ resource_claims:
 | Field | | |
 |---|---|---|
 | `domain` | required | the vhost to serve |
-| `upstream` | one of these two | `<quadlet>:<port>`, resolved to `<app>--<quadlet>:<port>` |
+| `upstream` | one of these three | `<quadlet>:<port>`, resolved to `<app>--<quadlet>:<port>` |
 | `address` | | a literal `host:port`, for an upstream with no container name |
+| `raw` | | the inside of the site block, written as given — see below |
 | `instance` | optional, `main` | which Caddy serves it |
 | `scheme` | optional, `http` | `https` for a TLS upstream |
 | `tls_insecure` | optional | skip certificate verification on the upstream hop |
@@ -36,6 +37,44 @@ no name to resolve, and is reached at the host's address instead.
 > Caddy.** Two instances usually exist because they publish on different networks with different
 > trust levels, so a claim that omits `instance` on a service meant for the restricted one
 > publishes it to the other. It fails open: a working site, and no error anywhere.
+
+### When a route does not fit: `raw`
+
+Some vhosts are more than one reverse proxy: they route by path across several upstreams, answer
+with a literal, or require auth. `raw` takes the inside of the site block and writes it as given:
+
+```yaml
+resource_claims:
+  kriansa.commons.caddy_ingress:
+    - domain: {{ ('metrics.' ~ public_dns_search) | to_json }}
+      raw: |
+        basic_auth {
+          agent {{ lookup('passwordstore', 'Metrics/Write subkey=hash') }}
+        }
+        handle /api/v1/write {
+          reverse_proxy http://{{ quadlet_app_name }}--main:9090
+        }
+        handle {
+          respond 404
+        }
+        log default
+```
+
+The role writes the `https://<domain> {` line around it and adds nothing else, so:
+
+- **There is no `import common`.** Put it in the block if the vhost wants the shared snippet.
+- **Upstreams are not resolved.** Name the container in full. `{{ quadlet_app_name }}` is the
+  app's own name, so `{{ quadlet_app_name }}--main` stays right if the app is renamed.
+- **`scheme`, `tls_insecure`, `preserve_host` and `flush_interval` are refused** next to it rather
+  than silently ignored. Write the equivalent directives into the block.
+
+The manifest is rendered before it is read, so the block can use variables and lookups like the
+rest of it. Caddy's own placeholders, such as `{host}` and `{uri}`, use single braces and pass
+through untouched.
+
+Every claim on an instance is written to the same file and validated together, so a block Caddy
+rejects rolls back the routes of every app on that instance, not only its own. Prefer the fields
+above whenever a route fits them; `raw` is for the ones that do not.
 
 ## What the app has to provide
 
@@ -58,7 +97,7 @@ Volume=%config%/conf.d:/etc/caddy/conf.d
 import /etc/caddy/conf.d/*.caddy
 ```
 
-Generated vhosts `import common`, so that snippet has to exist. Ship a placeholder file in
+Vhosts claimed with `upstream` or `address` `import common`, so that snippet has to exist. Ship a placeholder file in
 `config/<instance>/conf.d/` so the directory is there before Caddy first starts — an empty
 directory matched by the glob is valid, a missing mount source is not.
 
@@ -94,9 +133,9 @@ state is kept between runs and nothing has to be cleaned up by hand.
 
 ### Coexisting with hand-written vhosts
 
-Routes that do not fit the fields above stay in the Caddy app's own `Caddyfile`. The two files are
-merged by the import glob, so neither needs to know about the other, and an app can be moved over
-whenever it suits.
+A route that no app on the host owns, such as one proxying a different machine, has nowhere to be
+claimed from and stays in the Caddy app's own `Caddyfile`. The two files are merged by the import
+glob, so neither needs to know about the other, and an app can be moved over whenever it suits.
 
 The one rule: **a domain cannot be claimed while it is still written by hand.** Caddy refuses the
 whole configuration with `ambiguous site definition`, which step 3 catches and step 4 undoes — but

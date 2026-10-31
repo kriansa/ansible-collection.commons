@@ -10,19 +10,39 @@
 - name: Caddy ingress provider
   when: quadlet_hook == 'after'
   block:
-    - name: Check every claim names a domain and exactly one upstream
+    - name: Check every claim names a domain and exactly one way to serve it
       ansible.builtin.assert:
         that:
           - item.claim.domain is defined
-          - (item.claim.upstream is defined) != (item.claim.address is defined)
+          - (['upstream', 'address', 'raw'] | select('in', item.claim) | list | length) == 1
         fail_msg: >-
           {{ item.app }}: a caddy_ingress claim needs `domain` and exactly one of `upstream`
-          (a quadlet and port, as main:8080) or `address` (a literal host:port, for an upstream
-          with no container name). Got: {{ item.claim }}
+          (a quadlet and port, as main:8080), `address` (a literal host:port, for an upstream
+          with no container name) or `raw` (the inside of the site block, written out in full).
+          Got: {{ item.claim }}
         quiet: true
       loop: "{{ quadlet_claims }}"
       loop_control:
         label: "{{ item.app }}: {{ item.claim.domain | default('(no domain)') }}"
+
+    # A raw claim is written out exactly as given, so the fields that shape a generated
+    # reverse_proxy have nothing to act on. Accepting them would let a claim say
+    # `tls_insecure: true` and have it mean nothing, with no sign of that anywhere.
+    - name: Check every raw claim is text and nothing else
+      ansible.builtin.assert:
+        that:
+          - item.claim.raw is string
+          - (['scheme', 'tls_insecure', 'preserve_host', 'flush_interval']
+             | select('in', item.claim) | list) == []
+        fail_msg: >-
+          {{ item.app }}: the caddy_ingress claim for {{ item.claim.domain }} uses `raw`, which
+          has to be a string and cannot be combined with scheme, tls_insecure, preserve_host or
+          flush_interval - write those into the raw block itself. Got: {{ item.claim }}
+        quiet: true
+      when: "'raw' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
 
     # Done once, up front, so selecting per instance below is a plain comparison rather than the
     # same default repeated in every filter

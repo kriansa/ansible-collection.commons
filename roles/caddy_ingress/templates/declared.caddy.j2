@@ -6,6 +6,11 @@
 
 # declared by {{ entry.app }}
 https://{{ claim.domain }} {
+{% if claim.raw is defined %}
+{# Written as given, without `import common`: a raw claim is usually raw because it needs
+   something the shared snippet would get in the way of, so it imports it itself if it wants it #}
+{{ claim.raw | trim | indent('\t', first=True) }}
+{% else %}
 	import common
 {% if claim.address is defined %}
 {% set upstream = claim.address %}
@@ -30,6 +35,7 @@ https://{{ claim.domain }} {
 		}
 {% endif %}
 	}
+{% endif %}
 {% endif %}
 }
 {% endfor %}
