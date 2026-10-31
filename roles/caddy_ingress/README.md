@@ -112,8 +112,14 @@ Once per Caddy instance, which it discovers from the app's `config_dir` rather t
    `{env.*}` in the base Caddyfile resolve, and validates the merged result rather than the
    fragment.
 4. Puts the previous file back and fails if Caddy rejects it.
-5. Reloads — not restarts, which would cut every connection Caddy is holding open, so publishing
-   one app's route would interrupt every other app's users.
+5. Reloads — not restarts. A reload keeps every request already in flight, long-polls and event
+   streams included, and Caddy never stops listening; a restart drops them all and leaves a gap
+   where nothing answers.
+
+A reload is not invisible, though: it closes every WebSocket Caddy is proxying. Frontends that keep
+one open for live updates see it drop and reconnect, so publishing one app's route still briefly
+interrupts the live views of every other app on that instance. Caddy's `stream_close_delay` can
+postpone that close, but only postpone it, and generated routes do not set it.
 
 The reload posts the new configuration to Caddy's admin API, so the Caddy app has to have one. A
 base Caddyfile with `admin off` cannot be reloaded at all, and the failure is quiet: the route is

@@ -87,10 +87,10 @@
               two have to change in the same commit.
               Caddy said: {{ ansible_failed_result.stderr | default(ansible_failed_result.msg) }}
 
-    # Reload, not restart: Caddy takes the new configuration over the admin API without closing
-    # anything, while a restart would cut every connection it is holding open - the WebSocket a
-    # frontend uses for live updates is the common case, and a route added for one app would
-    # interrupt every other app's users.
+    # Reload, not restart: Caddy takes the new configuration over the admin API, keeps every request
+    # it is in the middle of and never stops listening, while a restart drops them all and leaves a
+    # gap with nothing answering. A reload does still close the WebSockets Caddy is proxying, so
+    # each frontend holding one has to reconnect - a blip on every app's live view, not an outage.
     - name: Reload {{ caddy_ingress_container }}
       when: caddy_ingress_rendered is changed
       ansible.builtin.command:
