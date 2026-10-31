@@ -1,0 +1,26 @@
+---
+argument_specs:
+  main:
+    short_description: Publish the Caddy routes apps claim for themselves
+    description:
+      - A provider for M(kriansa.quadlet.quadlet_app)'s C(quadlet_stack) role. Apps name this role
+        in their manifest's C(resource_claims) and describe the vhost they need; the role writes
+        them into the Caddy app's drop-in directory and reloads it.
+      - Runs on the C(after) hook only. The base Caddyfile changes when the Caddy app is deployed,
+        which happens in the same run but later than C(before) - writing earlier would put a route
+        alongside a hand-written one that is on its way out.
+      - Every claim is validated against the running Caddy before it is reloaded, and the previous
+        file is put back if Caddy rejects it.
+    options:
+      caddy_ingress_app:
+        description:
+          - The app that runs Caddy. Its C(config_dir) entries are both where routes are written
+            and which containers are reloaded - one Caddy per entry, named C(<app>--<entry>).
+        type: str
+        default: ingress
+      caddy_ingress_filename:
+        description:
+          - The file written into each instance's C(conf.d/). Rewritten whole every run, so a
+            claim an app stops making disappears on its own.
+        type: str
+        default: declared.caddy

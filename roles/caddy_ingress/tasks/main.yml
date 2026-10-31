@@ -1,0 +1,47 @@
+---
+# A quadlet_stack provider. Every provider is included on both hooks, so the whole body is guarded
+# once here rather than task by task: one task missing its own `when` would run twice per deploy,
+# the first time against the host as it was before anything was deployed.
+#
+# This runs on `after` and not `before` because the base Caddyfile only changes when the ingress app
+# itself is deployed. Before that, the host still holds the previous one - which, on a run that is
+# moving a vhost out of it and into a claim, still defines that vhost. Writing here then would put
+# two definitions of the same site in front of Caddy.
+- name: Caddy ingress provider
+  when: quadlet_hook == 'after'
+  block:
+    - name: Check every claim names a domain and exactly one upstream
+      ansible.builtin.assert:
+        that:
+          - item.claim.domain is defined
+          - (item.claim.upstream is defined) != (item.claim.address is defined)
+        fail_msg: >-
+          {{ item.app }}: a caddy_ingress claim needs `domain` and exactly one of `upstream`
+          (a quadlet and port, as main:8080) or `address` (a literal host:port, for an upstream
+          with no container name). Got: {{ item.claim }}
+        quiet: true
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain | default('(no domain)') }}"
+
+    # Done once, up front, so selecting per instance below is a plain comparison rather than the
+    # same default repeated in every filter
+    - name: Give every claim an explicit instance
+      ansible.builtin.set_fact:
+        caddy_ingress_claims: >-
+          {{ caddy_ingress_claims | default([])
+             + [item | combine({'claim': item.claim
+                 | combine({'instance': item.claim.instance | default('main')})})] }}
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # The instances are not configured anywhere: config_dir is keyed by quadlet, so its keys are
+    # exactly the Caddys this app runs - {main, admin} on a host with a second one for a management
+    # VLAN, {main} on a host with one.
+    - name: Write and reload each Caddy
+      ansible.builtin.include_tasks: instance.yml
+      loop: "{{ quadlet_stack.apps[caddy_ingress_app].config_dir | dict2items }}"
+      loop_control:
+        loop_var: caddy_ingress_dir
+        label: "{{ caddy_ingress_app }}--{{ caddy_ingress_dir.key }}"

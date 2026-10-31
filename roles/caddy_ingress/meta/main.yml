@@ -1,0 +1,17 @@
+galaxy_info:
+  description: "quadlet_stack provider: publishes the Caddy routes apps claim for themselves"
+  author: kriansa
+  license: Apache
+  min_ansible_version: "2.19"
+
+  platforms:
+    - name: EL
+      versions:
+        - "10"
+
+  galaxy_tags:
+    - caddy
+    - ingress
+    - quadlet
+
+dependencies: []

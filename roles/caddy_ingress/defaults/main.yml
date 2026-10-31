@@ -1,0 +1,8 @@
+---
+# The app that runs Caddy. Its config directories are where routes are written, and its containers
+# are what gets reloaded: one Caddy per directory, named <app>--<directory>.
+caddy_ingress_app: ingress
+
+# The file written into each instance's conf.d/. One file per instance, rewritten whole every run,
+# which is what makes a dropped claim disappear on its own - see the role's README.
+caddy_ingress_filename: declared.caddy

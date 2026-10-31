@@ -1,0 +1,100 @@
+---
+# One Caddy of the ingress app: write the routes claimed for it, prove the merged configuration
+# parses, then reload. Included once per entry in the app's config_dir.
+- name: Name this instance
+  ansible.builtin.set_fact:
+    caddy_ingress_path: "{{ caddy_ingress_dir.value }}/conf.d/{{ caddy_ingress_filename }}"
+    caddy_ingress_container: "{{ caddy_ingress_app }}--{{ caddy_ingress_dir.key }}"
+    # Sorted, so the file depends only on what is claimed and not on the order the claims were
+    # read in. An order that moves on its own would rewrite and reload Caddy on every run.
+    caddy_ingress_entries: >-
+      {{ caddy_ingress_claims | default([])
+         | selectattr('claim.instance', 'equalto', caddy_ingress_dir.key)
+         | sort(attribute='claim.domain') | sort(attribute='app') | list }}
+
+# Every provider is given every claim on the host, including from apps whose consumer is not
+# deployed here. config_dir says where the files go, not that anything is there yet.
+- name: Check {{ caddy_ingress_container }} is deployed
+  ansible.builtin.stat:
+    path: "{{ caddy_ingress_dir.value }}/conf.d"
+  register: caddy_ingress_confd
+
+- name: Publish the claimed routes
+  when: caddy_ingress_confd.stat.exists
+  block:
+    # Kept so a configuration Caddy rejects can be undone. Reading it before the write is the only
+    # moment it still exists.
+    - name: Remember what is there now
+      ansible.builtin.slurp:
+        src: "{{ caddy_ingress_path }}"
+      register: caddy_ingress_previous
+      failed_when: false
+
+    # setype, and no selevel: a file written here otherwise takes the label its path defaults to,
+    # which the container cannot read. The Z on the mount only relabels when the container starts,
+    # so a reload would never see a correct label. Without a level, the file is readable whatever
+    # category the container is running under.
+    - name: Render the routes for {{ caddy_ingress_container }}
+      ansible.builtin.template:
+        src: declared.caddy.j2
+        dest: "{{ caddy_ingress_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        setype: container_file_t
+      register: caddy_ingress_rendered
+
+    - name: Apply it
+      when: caddy_ingress_rendered is changed
+      block:
+        # In the running container, not a throwaway one: the base Caddyfile's acme_dns and email
+        # read {env.*}, and validate provisions those modules rather than only parsing. conf.d is a
+        # bind mount, so the file just written is already visible here and the import glob covers
+        # it - this validates the merged result, exactly what a reload would load.
+        - name: Check the merged configuration parses
+          ansible.builtin.command:
+            cmd: >-
+              podman exec {{ caddy_ingress_container }}
+              caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          changed_when: false
+
+      rescue:
+        # The file is already on disk and inert until something restarts Caddy - and then it takes
+        # every site on this host down, not only the one that is wrong. Putting back what was there
+        # is the whole reason the slurp above exists.
+        - name: Put back the configuration that worked
+          ansible.builtin.copy:
+            content: "{{ caddy_ingress_previous.content | b64decode }}"
+            dest: "{{ caddy_ingress_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+            setype: container_file_t
+          when: caddy_ingress_previous.content is defined
+
+        - name: Remove the file, which did not exist before this run
+          ansible.builtin.file:
+            path: "{{ caddy_ingress_path }}"
+            state: absent
+          when: caddy_ingress_previous.content is not defined
+
+        - name: Report what Caddy rejected
+          ansible.builtin.fail:
+            msg: >-
+              {{ caddy_ingress_container }} rejected the routes claimed for it, and the previous
+              configuration has been put back. A domain claimed by an app while it is still written
+              by hand in the ingress app's own Caddyfile reads as `ambiguous site definition`; the
+              two have to change in the same commit.
+              Caddy said: {{ ansible_failed_result.stderr | default(ansible_failed_result.msg) }}
+
+    # Reload, not restart: Caddy takes the new configuration over the admin API without closing
+    # anything, while a restart would cut every connection it is holding open - the WebSocket a
+    # frontend uses for live updates is the common case, and a route added for one app would
+    # interrupt every other app's users.
+    - name: Reload {{ caddy_ingress_container }}
+      when: caddy_ingress_rendered is changed
+      ansible.builtin.command:
+        cmd: >-
+          podman exec {{ caddy_ingress_container }}
+          caddy reload --config /etc/caddy/Caddyfile
+      changed_when: true

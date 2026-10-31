@@ -1,0 +1,35 @@
+{{ ansible_managed | comment }}
+# Routes the apps on this host claim for themselves. Rewritten whole on every run: an entry
+# disappears from here when the app stops claiming it. Edit the claim, not this file.
+{% for entry in caddy_ingress_entries %}
+{% set claim = entry.claim %}
+
+# declared by {{ entry.app }}
+https://{{ claim.domain }} {
+	import common
+{% if claim.address is defined %}
+{% set upstream = claim.address %}
+{% else %}
+{% set upstream = entry.app ~ '--' ~ claim.upstream %}
+{% endif %}
+{% set target = (claim.scheme | default('http')) ~ '://' ~ upstream %}
+{% set opts = claim.preserve_host | default(false) or claim.tls_insecure | default(false) or claim.flush_interval is defined %}
+{% if not opts %}
+	reverse_proxy {{ target }}
+{% else %}
+	reverse_proxy {{ target }} {
+{% if claim.preserve_host | default(false) %}
+		header_up Host {host}
+{% endif %}
+{% if claim.flush_interval is defined %}
+		flush_interval {{ claim.flush_interval }}
+{% endif %}
+{% if claim.tls_insecure | default(false) %}
+		transport http {
+			tls_insecure_skip_verify
+		}
+{% endif %}
+	}
+{% endif %}
+}
+{% endfor %}
