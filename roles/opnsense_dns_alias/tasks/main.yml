@@ -1,0 +1,59 @@
+---
+# A quadlet_stack provider. Every provider is included on both hooks, so the whole body is guarded
+# once here rather than task by task: one task missing its own `when` would run twice per deploy.
+#
+# This runs on `before` and not `after`: a name should resolve by the time the app serving it
+# starts. Unlike caddy_ingress, nothing it writes depends on the deploy - there is no base
+# configuration on the host for a generated entry to collide with.
+- name: OPNsense DNS alias provider
+  when: quadlet_hook == 'before'
+  block:
+    # Unknown keys are refused, not ignored. A misspelled `parnet` would otherwise read as a claim
+    # with no parent, and the reason would be far from the typo.
+    - name: Check every claim names a host and the override it is an alias of
+      ansible.builtin.assert:
+        that:
+          - item.claim is mapping
+          - item.claim.name is defined and item.claim.name is string
+          - item.claim.name | length > 0
+          - item.claim.parent is defined and item.claim.parent is string
+          - item.claim.parent | length > 0
+          - (item.claim.keys() | difference(['name', 'parent'])) == []
+        fail_msg: >-
+          {{ item.app }}: an opnsense_dns_alias claim needs `name`, the full name to publish (as
+          git.svc.lan.cx), and `parent`, the host override it becomes an alias of (as
+          atlas.svc.lan.cx) - and nothing else. Got: {{ item.claim }}
+        quiet: true
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.name | default('(no name)') }}"
+
+    # Reset first: a fact outlives the include, and a second stack run in the same play would
+    # otherwise start from the first one's list
+    - name: Start from no aliases
+      ansible.builtin.set_fact:
+        opnsense_dns_alias_wanted: []
+
+    - name: List the aliases the apps claim
+      ansible.builtin.set_fact:
+        opnsense_dns_alias_wanted: >-
+          {{ opnsense_dns_alias_wanted
+             + [{'name': item.claim.name, 'parent': item.claim.parent, 'app': item.app}] }}
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.name }}"
+
+    # On the control node: the credentials never leave it, and the managed host needs no route to
+    # the router's API. become is turned off because the stack is imported with become: true, which
+    # would otherwise run this through sudo on the control node.
+    - name: Publish the claimed names on {{ opnsense_dns_alias_api_url }}
+      kriansa.commons.opnsense_unbound_aliases:
+        api_url: "{{ opnsense_dns_alias_api_url }}"
+        api_key: "{{ opnsense_dns_alias_api_key }}"
+        api_secret: "{{ opnsense_dns_alias_api_secret }}"
+        validate_certs: "{{ opnsense_dns_alias_validate_certs }}"
+        timeout: "{{ opnsense_dns_alias_timeout }}"
+        owner: "{{ opnsense_dns_alias_owner }}"
+        aliases: "{{ opnsense_dns_alias_wanted }}"
+      delegate_to: localhost
+      become: false

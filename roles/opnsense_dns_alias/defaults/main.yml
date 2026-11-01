@@ -1,0 +1,13 @@
+---
+# The name every alias this host creates is marked with, and the only thing that tells its aliases
+# from another host's. Taken from the host name os_base sets rather than the inventory name, which
+# is an IP address whenever a play targets a host by address. If this ever changes, every alias
+# marked with the old value is orphaned: no host deletes it, and claiming it again fails as owned by
+# someone else until the marker is edited by hand.
+opnsense_dns_alias_owner: "{{ hostname.split('.') | first }}"
+
+# Verify the router's TLS certificate
+opnsense_dns_alias_validate_certs: true
+
+# Seconds to wait for each request to the router
+opnsense_dns_alias_timeout: 30

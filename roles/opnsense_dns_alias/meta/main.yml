@@ -1,0 +1,18 @@
+galaxy_info:
+  description: "quadlet_stack provider: publishes the DNS names apps claim as Unbound aliases"
+  author: kriansa
+  license: Apache
+  min_ansible_version: "2.19"
+
+  platforms:
+    - name: EL
+      versions:
+        - "10"
+
+  galaxy_tags:
+    - opnsense
+    - unbound
+    - dns
+    - quadlet
+
+dependencies: []

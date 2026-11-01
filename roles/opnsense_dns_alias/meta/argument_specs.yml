@@ -1,0 +1,43 @@
+---
+argument_specs:
+  main:
+    short_description: Publish the DNS names apps claim as OPNsense Unbound aliases
+    description:
+      - A provider for M(kriansa.quadlet.quadlet_app)'s C(quadlet_stack) role. Apps name this role
+        in their manifest's C(resource_claims), with each name they need and the host override it
+        hangs from; the role makes the router's aliases match and restarts Unbound if anything
+        changed.
+      - Runs on the C(before) hook only, so a name resolves by the time the app serving it starts.
+      - Runs on the control node. The managed host never talks to the router.
+    options:
+      opnsense_dns_alias_api_url:
+        description:
+          - The router's base URL, without C(/api).
+        type: str
+        required: true
+      opnsense_dns_alias_api_key:
+        description:
+          - The API key. Its user needs the C(Services: Unbound) privilege.
+        type: str
+        required: true
+      opnsense_dns_alias_api_secret:
+        description:
+          - The API secret.
+        type: str
+        required: true
+      opnsense_dns_alias_owner:
+        description:
+          - The name this host's aliases are marked with. Changing it orphans every alias already
+            marked with the old one.
+        type: str
+        default: "the first label of the C(hostname) variable os_base sets"
+      opnsense_dns_alias_validate_certs:
+        description:
+          - Verify the router's TLS certificate.
+        type: bool
+        default: true
+      opnsense_dns_alias_timeout:
+        description:
+          - Seconds to wait for each request to the router.
+        type: int
+        default: 30
