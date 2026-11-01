@@ -1,0 +1,143 @@
+---
+# A quadlet_stack provider. Every provider is included on both hooks, so the whole body is guarded
+# once here rather than task by task: one task missing its own `when` would run twice per deploy,
+# the first time against the host as it was before anything was deployed.
+#
+# This runs on `after` and not `before` because every declared scrape forwards to a component the
+# base configuration defines, and the base configuration only changes when the Alloy app itself is
+# deployed. Before that, the host still holds the previous one.
+- name: Alloy scrape provider
+  when: quadlet_hook == 'after'
+  block:
+    # A failed check prints the whole claim it was looking at, whatever its fail_msg says, so the
+    # checks below read this copy, with any token replaced. Only the file itself gets the real one.
+    - name: Start from no claims
+      ansible.builtin.set_fact:
+        alloy_scrape_checked: []
+        alloy_scrape_entries: []
+
+    - name: Hide the tokens from the checks
+      ansible.builtin.set_fact:
+        alloy_scrape_checked: >-
+          {{ alloy_scrape_checked + [item | combine({'claim': item.claim
+             | combine({'bearer_token': '(hidden)'})})
+             if item.claim is mapping and 'bearer_token' in item.claim else item] }}
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}"
+
+    # Unknown keys are refused, not ignored. A misspelled `metric_path` would otherwise scrape
+    # /metrics instead, and the only sign would be a job reading up=0 or the wrong series.
+    - name: Check every claim names a job and a target, and only fields this role knows
+      ansible.builtin.assert:
+        that:
+          - item.claim is mapping
+          - item.claim.job is defined and item.claim.job is string and item.claim.job | length > 0
+          - item.claim.target is defined and item.claim.target is string
+          - item.claim.target is match('^[^:/ ]+:[0-9]+$')
+          - (item.claim.keys() | difference(['job', 'target', 'metrics_path', 'scheme',
+             'scrape_interval', 'bearer_token', 'relabel'])) == []
+        fail_msg: >-
+          {{ item.app }}: an alloy_scrape claim needs `job` and `target` (a quadlet and port, as
+          main:9090), and may add metrics_path, scheme, scrape_interval, bearer_token and relabel.
+          Got: {{ item.claim }}
+        quiet: true
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job | default('(no job)') }}"
+
+    # Each rule becomes a `rule { key = value }` block, so its keys are written into the file as
+    # names. Checked here so a stray key reads as a claim error rather than an Alloy syntax error.
+    - name: Check every relabel is a list of rules
+      ansible.builtin.assert:
+        that:
+          - item.claim.relabel is sequence and item.claim.relabel is not string
+          - item.claim.relabel | length > 0
+          - item.claim.relabel | reject('mapping') | list == []
+          - item.claim.relabel | map('list') | flatten | reject('match', '^[a-z_]+$') | list == []
+        fail_msg: >-
+          {{ item.app }}: the relabel of job {{ item.claim.job }} has to be a list of rules, each a
+          mapping of Alloy's prometheus.relabel rule arguments (action, source_labels, regex...).
+          Got: {{ item.claim.relabel }}
+        quiet: true
+      when: "'relabel' in item.claim"
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
+
+    # A target names one of the app's own containers, the way an ingress upstream does. Naming one
+    # that does not exist would resolve to nothing and fail every scrape.
+    - name: Check every target is one of its app's containers
+      ansible.builtin.assert:
+        that:
+          - item.claim.target.split(':')[0] in quadlet_stack.apps[item.app].quadlets
+        fail_msg: >-
+          {{ item.app }}: job {{ item.claim.job }} targets `{{ item.claim.target.split(':')[0] }}`,
+          which is not one of the app's quadlets ({{ quadlet_stack.apps[item.app].quadlets
+          | join(', ') }}).
+        quiet: true
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
+
+    # Joining the network is what makes the target resolvable from Alloy at all. Without it the
+    # scrape fails every time, and nothing reports that except up=0.
+    - name: Check every claiming app joins {{ alloy_scrape_network }}
+      ansible.builtin.assert:
+        that:
+          - alloy_scrape_network in quadlet_stack.apps[item.app].networks
+        fail_msg: >-
+          {{ item.app }} claims a scrape but none of its containers joins {{ alloy_scrape_network }},
+          so Alloy cannot reach it. Add Network={{ alloy_scrape_network }} to the container serving
+          the metrics.
+        quiet: true
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
+
+    # The name is the component label in Alloy, which allows letters, digits and underscores only.
+    # Prefixed with the app, so two apps can both have a job called `api`.
+    - name: Name each scrape
+      ansible.builtin.set_fact:
+        alloy_scrape_entries: >-
+          {{ alloy_scrape_entries + [item | combine({'name': (item.app ~ '_' ~ item.claim.job)
+             | regex_replace('[^A-Za-z0-9_]', '_')})] }}
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
+
+    # Two components with one name make Alloy refuse the whole configuration. It happens when an app
+    # claims a job twice, or when two names only differ in characters that become `_`.
+    - name: Check every scrape gets a name of its own
+      ansible.builtin.assert:
+        that:
+          - alloy_scrape_entries | map(attribute='name') | unique | length
+            == alloy_scrape_entries | length
+        fail_msg: >-
+          Two alloy_scrape claims resolve to the same component name. Names are <app>_<job>, with
+          anything but letters, digits and _ replaced by _. They are:
+          {{ alloy_scrape_entries | map(attribute='name') | sort | join(', ') }}
+        quiet: true
+
+    - name: Check {{ alloy_scrape_app }} has a quadlet called {{ alloy_scrape_quadlet }} with a config directory
+      ansible.builtin.assert:
+        that:
+          - alloy_scrape_app in quadlet_stack.apps
+          - alloy_scrape_quadlet in quadlet_stack.apps[alloy_scrape_app].config_dir
+        fail_msg: >-
+          alloy_scrape writes into the config directory of {{ alloy_scrape_app }}'s
+          `{{ alloy_scrape_quadlet }}` quadlet, and there is none. Set alloy_scrape_app and
+          alloy_scrape_quadlet to the app and quadlet running Alloy.
+        quiet: true
+
+    - name: Name the Alloy on this host
+      ansible.builtin.set_fact:
+        alloy_scrape_dir: >-
+          {{ quadlet_stack.apps[alloy_scrape_app].config_dir[alloy_scrape_quadlet] }}
+        alloy_scrape_container: "{{ alloy_scrape_app }}--{{ alloy_scrape_quadlet }}"
+        # Sorted, so the file depends only on what is claimed and not on the order the claims were
+        # read in. An order that moves on its own would rewrite and reload Alloy on every run.
+        alloy_scrape_entries: "{{ alloy_scrape_entries | sort(attribute='name') }}"
+
+    - name: Write and reload Alloy
+      ansible.builtin.include_tasks: write.yml

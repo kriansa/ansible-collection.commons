@@ -1,0 +1,40 @@
+{{ ansible_managed | comment('c') }}
+// Scrapes the apps on this host claim for themselves. Rewritten whole on every run: an entry
+// disappears from here when the app stops claiming it. Edit the claim, not this file.
+{#
+   Every value is written with to_json: a JSON string or list is also a valid Alloy one, escaping
+   included, so nothing a claim says can break out of the value it was given for.
+#}
+{% for entry in alloy_scrape_entries %}
+{% set claim = entry.claim %}
+{% set receiver = 'prometheus.relabel.' ~ entry.name if claim.relabel is defined else 'prometheus.remote_write.default' %}
+
+// declared by {{ entry.app }}
+prometheus.scrape {{ entry.name | to_json }} {
+  targets = [
+    {"__address__" = {{ (entry.app ~ '--' ~ claim.target) | to_json }}, "job" = {{ claim.job | to_json }}, "instance" = {{ alloy_scrape_instance | to_json }}},
+  ]
+  metrics_path    = {{ claim.metrics_path | default('/metrics') | to_json }}
+  scheme          = {{ claim.scheme | default('http') | to_json }}
+  scrape_interval = {{ claim.scrape_interval | default('60s') | to_json }}
+{% if claim.bearer_token is defined %}
+  bearer_token    = {{ claim.bearer_token | to_json }}
+{% endif %}
+  forward_to      = [{{ receiver }}.receiver]
+}
+{% if claim.relabel is defined %}
+
+{# The rules run in the order the claim lists them, which matters as soon as one depends on another #}
+prometheus.relabel {{ entry.name | to_json }} {
+  forward_to = [prometheus.remote_write.default.receiver]
+{% for rule in claim.relabel %}
+
+  rule {
+{% for key, value in rule.items() %}
+    {{ key }} = {{ value | to_json }}
+{% endfor %}
+  }
+{% endfor %}
+}
+{% endif %}
+{% endfor %}

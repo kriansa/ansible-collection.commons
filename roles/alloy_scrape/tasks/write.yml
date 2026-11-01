@@ -1,0 +1,144 @@
+---
+# Write the claimed scrapes into Alloy's config directory, prove the merged configuration loads,
+# then reload. Included from main.yml on the `after` pass only, which is also what keeps the names
+# below from being shown, unfilled, on the `before` pass.
+
+# Every provider is given every claim on the host, including from apps whose consumer is not
+# deployed here. config_dir says where the files go, not that anything is there yet.
+- name: Check {{ alloy_scrape_container }} is deployed
+  ansible.builtin.stat:
+    path: "{{ alloy_scrape_dir }}"
+  register: alloy_scrape_deployed
+
+- name: Write the claimed scrapes
+  when: alloy_scrape_deployed.stat.exists
+  block:
+    # Kept so a configuration Alloy rejects can be undone. Reading it before the write is the
+    # only moment it still exists. no_log, because the file can hold a bearer token.
+    - name: Remember what is there now
+      ansible.builtin.slurp:
+        src: "{{ alloy_scrape_dir }}/{{ alloy_scrape_filename }}"
+      register: alloy_scrape_previous
+      failed_when: false
+      no_log: true
+
+    # 0600 and no diff, because a claim's bearer_token is written here as it is. Alloy runs as
+    # root, so it reads the file whatever the mode. setype, and no selevel: a new file otherwise
+    # takes the label its path defaults to, which a confined container cannot read.
+    - name: Render the scrapes for {{ alloy_scrape_container }}
+      ansible.builtin.template:
+        src: declared.alloy.j2
+        dest: "{{ alloy_scrape_dir }}/{{ alloy_scrape_filename }}"
+        owner: root
+        group: root
+        mode: "0600"
+        setype: container_file_t
+      diff: false
+      register: alloy_scrape_rendered
+
+    - name: Apply it
+      when: alloy_scrape_rendered is changed
+      block:
+        # A container that mounts config.alloy alone, rather than the directory, never sees this
+        # file: Alloy would validate and reload without it, and every declared scrape would be
+        # missing with no error anywhere.
+        - name: Look for the file inside {{ alloy_scrape_container }}
+          ansible.builtin.command:
+            argv:
+              - podman
+              - exec
+              - "{{ alloy_scrape_container }}"
+              - test
+              - -f
+              - "{{ alloy_scrape_config_path }}/{{ alloy_scrape_filename }}"
+          register: alloy_scrape_visible
+          changed_when: false
+          failed_when: false
+
+        - name: Check {{ alloy_scrape_container }} sees the file
+          ansible.builtin.assert:
+            that:
+              - alloy_scrape_visible.rc == 0
+            fail_msg: >-
+              {{ alloy_scrape_container }} cannot see {{ alloy_scrape_config_path }}/{{
+              alloy_scrape_filename }}. Its quadlet has to mount the whole config directory,
+              as Volume=%config%:{{ alloy_scrape_config_path }}, and run
+              `alloy run {{ alloy_scrape_config_path }}`. {{ alloy_scrape_visible.stderr }}
+            quiet: true
+
+        # In the running container, against the whole directory: this checks the declared
+        # scrapes together with the base configuration they forward to, which is what Alloy
+        # loads.
+        - name: Check the merged configuration is valid
+          ansible.builtin.command:
+            argv:
+              - podman
+              - exec
+              - "{{ alloy_scrape_container }}"
+              - alloy
+              - validate
+              - "{{ alloy_scrape_config_path }}"
+          changed_when: false
+
+        - name: Find {{ alloy_scrape_container }}'s process
+          ansible.builtin.command:
+            argv:
+              - podman
+              - container
+              - inspect
+              - "{{ alloy_scrape_container }}"
+          register: alloy_scrape_inspect
+          changed_when: false
+
+        # Reload, not restart: a restart would make Alloy flush and reopen its send queue, and
+        # drop the scrapes in progress. The reload is a POST, not a SIGHUP, because Alloy
+        # answers a configuration it cannot load with an error, which fails this task. A SIGHUP
+        # would fail silently: Alloy keeps the last good configuration in memory, the bad file
+        # stays on disk, and Alloy refuses to start the next time anything restarts it.
+        #
+        # The image ships no curl and its HTTP server listens on its own loopback, so the
+        # request is made from the host, inside the container's network namespace.
+        - name: Reload {{ alloy_scrape_container }}
+          ansible.builtin.command:
+            argv:
+              - nsenter
+              - --target
+              - "{{ (alloy_scrape_inspect.stdout | from_json)[0].State.Pid }}"
+              - --net
+              - curl
+              - --silent
+              - --show-error
+              - --fail-with-body
+              - --request
+              - POST
+              - "{{ alloy_scrape_reload_url }}"
+          changed_when: true
+
+      rescue:
+        # Alloy is still running the last configuration it accepted, so putting the file back is
+        # all that is needed. Left in place, it would stop Alloy from starting at all the next
+        # time anything restarts it.
+        - name: Put back the configuration that worked
+          ansible.builtin.copy:
+            content: "{{ alloy_scrape_previous.content | b64decode }}"
+            dest: "{{ alloy_scrape_dir }}/{{ alloy_scrape_filename }}"
+            owner: root
+            group: root
+            mode: "0600"
+            setype: container_file_t
+          when: alloy_scrape_previous.content is defined
+          no_log: true
+
+        - name: Remove the file, which did not exist before this run
+          ansible.builtin.file:
+            path: "{{ alloy_scrape_dir }}/{{ alloy_scrape_filename }}"
+            state: absent
+          when: alloy_scrape_previous.content is not defined
+
+        - name: Report what Alloy rejected
+          ansible.builtin.fail:
+            msg: >-
+              {{ alloy_scrape_container }} rejected the scrapes claimed for it, and the previous
+              configuration has been put back. The reason:
+              {{ ansible_failed_result.stdout | default('') }}
+              {{ ansible_failed_result.stderr | default(ansible_failed_result.msg) }}

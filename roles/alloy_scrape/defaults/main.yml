@@ -1,0 +1,22 @@
+---
+# The app that runs Alloy, and which of its quadlets is Alloy. That quadlet's config directory is
+# where scrapes are written, and <app>--<quadlet> is the container that is validated and reloaded.
+alloy_scrape_app: o11y
+alloy_scrape_quadlet: main
+
+# The network an app has to join for Alloy to reach its targets. A claim from an app that is not on
+# it is refused: the scrape could never connect, and would only ever show up as up=0.
+alloy_scrape_network: "{{ alloy_scrape_app }}--main"
+
+# The instance label on every declared scrape. The host name os_base sets is also what the host's
+# own metrics are labelled with, so an app's series and its host's line up.
+alloy_scrape_instance: "{{ hostname }}"
+
+# Where the Alloy container mounts its config directory, and where its HTTP server answers a reload.
+# Alloy listens on 127.0.0.1:12345 inside its own container unless told otherwise.
+alloy_scrape_config_path: /etc/alloy
+alloy_scrape_reload_url: http://127.0.0.1:12345/-/reload
+
+# The file written into Alloy's config directory. Rewritten whole every run, which is what makes a
+# dropped claim disappear on its own - see the role's README.
+alloy_scrape_filename: declared.alloy

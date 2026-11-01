@@ -1,0 +1,52 @@
+---
+argument_specs:
+  main:
+    short_description: Scrape the metrics endpoints apps claim for themselves
+    description:
+      - A provider for M(kriansa.quadlet.quadlet_app)'s C(quadlet_stack) role. Apps name this role
+        in their manifest's C(resource_claims) and describe the endpoint to scrape; the role writes
+        the scrapes into the Alloy app's config directory and reloads Alloy.
+      - Runs on the C(after) hook only. The declared scrapes forward to a component the base
+        configuration defines, and that configuration changes when the Alloy app is deployed, which
+        happens in the same run but later than C(before).
+      - The merged configuration is validated by the running Alloy before it is reloaded, and the
+        previous file is put back if Alloy rejects it.
+    options:
+      alloy_scrape_app:
+        description:
+          - The app that runs Alloy.
+        type: str
+        default: o11y
+      alloy_scrape_quadlet:
+        description:
+          - Which of the app's quadlets is Alloy. Its C(config_dir) entry is where scrapes are
+            written, and C(<app>--<quadlet>) is the container validated and reloaded.
+        type: str
+        default: main
+      alloy_scrape_network:
+        description:
+          - The network a claiming app has to join. A claim from an app that does not is refused.
+        type: str
+        default: "<alloy_scrape_app>--main"
+      alloy_scrape_instance:
+        description:
+          - The C(instance) label on every declared scrape.
+        type: str
+        default: "the C(hostname) variable os_base sets"
+      alloy_scrape_config_path:
+        description:
+          - Where the Alloy container mounts its config directory. It has to be the directory, not
+            a single file in it, or the written file is never seen.
+        type: str
+        default: /etc/alloy
+      alloy_scrape_reload_url:
+        description:
+          - Alloy's reload endpoint, as seen from inside its container.
+        type: str
+        default: http://127.0.0.1:12345/-/reload
+      alloy_scrape_filename:
+        description:
+          - The file written into Alloy's config directory. Rewritten whole every run, so a claim an
+            app stops making disappears on its own.
+        type: str
+        default: declared.alloy
