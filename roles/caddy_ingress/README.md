@@ -29,6 +29,23 @@ resource_claims:
 | `tls_insecure` | optional | skip certificate verification on the upstream hop |
 | `preserve_host` | optional | send the original `Host` upstream |
 | `flush_interval` | optional | response buffering; `-1` disables it, for SSE and streaming |
+| `headers_up` | optional | extra headers to set on the request to the upstream |
+| `forward_auth` | optional | put an authentication service in front of the vhost — see below |
+
+`headers_up` is a mapping of header name to value, and exists for an upstream that wants to be
+told something about its proxy — most often a shared secret proving the request came through it
+and not straight off the container network:
+
+```yaml
+    - domain: {{ ('nvr.' ~ public_dns_search) | to_json }}
+      upstream: {{ 'main:8971' | to_json }}
+      headers_up:
+        X-Proxy-Secret: {{ lookup('passwordstore', 'NVR/Proxy-Secret') | to_json }}
+```
+
+Values are written into the generated file as quoted strings, so spaces and quotes are safe —
+but Caddy expands its own `{...}` placeholders inside a quoted string, so a value containing
+braces is read as one rather than sent literally. Keep secrets used here alphanumeric.
 
 `address` exists for a container that joins no network of its own — one running `Network=host` has
 no name to resolve, and is reached at the host's address instead.
@@ -65,8 +82,11 @@ The role writes the `https://<domain> {` line around it and adds nothing else, s
 - **There is no `import common`.** Put it in the block if the vhost wants the shared snippet.
 - **Upstreams are not resolved.** Name the container in full. `{{ quadlet_app_name }}` is the
   app's own name, so `{{ quadlet_app_name }}--main` stays right if the app is renamed.
-- **`scheme`, `tls_insecure`, `preserve_host` and `flush_interval` are refused** next to it rather
-  than silently ignored. Write the equivalent directives into the block.
+- **`scheme`, `tls_insecure`, `preserve_host`, `flush_interval` and `headers_up` are refused** next
+  to it rather than silently ignored. Write the equivalent directives into the block.
+- **`forward_auth` is allowed** next to it, and is written above the block. A raw block containing
+  a `forward_auth` of its own is refused, because both gates would be installed and the inner one
+  would decide.
 
 The manifest is rendered before it is read, so the block can use variables and lookups like the
 rest of it. Caddy's own placeholders, such as `{host}` and `{uri}`, use single braces and pass
@@ -75,6 +95,105 @@ through untouched.
 Every claim on an instance is written to the same file and validated together, so a block Caddy
 rejects rolls back the routes of every app on that instance, not only its own. Prefer the fields
 above whenever a route fits them; `raw` is for the ones that do not.
+
+## Putting a login in front: `forward_auth`
+
+For an app that cannot authenticate anyone itself. Caddy asks an authentication service about
+**every** request and serves the app only if it approves; the service never carries the app's
+traffic, and the app needs to know nothing about it.
+
+```yaml
+resource_claims:
+  kriansa.commons.caddy_ingress:
+    - domain: {{ ('wiki.' ~ public_dns_search) | to_json }}
+      upstream: {{ 'main:8080' | to_json }}
+      forward_auth:
+        profile: sso
+        require_roles: [role:wiki-admin]
+```
+
+| Field | | |
+|---|---|---|
+| `profile` | required | which entry of `caddy_ingress_auth` to ask |
+| `require_roles` | optional | deny with 403 unless the caller carries one of these |
+
+Leave `require_roles` out when the app does its own authorization from the headers the gate sets;
+then the gate only answers *who* the caller is. Include it for an app with no concept of a user,
+where Caddy has to be the one that refuses.
+
+Values are matched against the header **verbatim**, so they carry whatever prefix the service uses
+— oauth2-proxy reports a Keycloak realm role as `role:<name>`. The field accepts anything that
+appears in that header, so despite the name it will match a bare group just as well.
+
+### Defining a profile
+
+Profiles live in the playbook, not in this role, keyed by the name claims use. This one is an
+**example**, written for oauth2-proxy; the role ships none, because every value here describes a
+service it knows nothing about.
+
+```yaml
+caddy_ingress_auth:
+  sso:
+    endpoint: "http://oauth2-proxy--main:4180"   # where Caddy asks
+    uri: /oauth2/auth                            # the path that answers 2xx or 401
+    redirect: "https://oauth-id.example/oauth2/start"   # where an unauthenticated caller is sent
+    host: oauth-id.example                       # optional: Host sent to the endpoint
+    copy_headers:                                # auth response header -> upstream request header
+      X-Auth-Request-Preferred-Username: X-Forwarded-User
+      X-Auth-Request-Groups: X-Forwarded-Groups
+    strip_headers: [X-Forwarded-User, X-Forwarded-Groups]   # cleared before the gate runs
+    role_header: X-Forwarded-Groups              # what require_roles matches against
+    user_header: X-Forwarded-User                # optional: named in the 403 body
+    logout: "https://oauth-id.example/oauth2/sign_out"      # optional: offered in the 403 body
+```
+
+`endpoint`, `uri`, `redirect` and `copy_headers` are required, and `role_header` as soon as any
+claim sets `require_roles`. A claim naming a profile that is missing or incomplete fails the run
+before anything is written.
+
+**`host` is needed whenever the endpoint is a different vhost.** Caddy sends the original `Host`
+to the auth endpoint by default, so without it the request arrives asking for the app's hostname
+and the authentication service's own ingress will not match it.
+
+### What gets written, and why it looks like that
+
+```caddy
+route {
+	request_header -X-Forwarded-User
+	request_header -X-Forwarded-Groups
+
+	forward_auth http://oauth2-proxy--main:4180 {
+		uri /oauth2/auth
+		copy_headers X-Auth-Request-Groups>X-Forwarded-Groups X-Auth-Request-Preferred-Username>X-Forwarded-User
+
+		@unauth status 4xx
+		handle_response @unauth {
+			redir * https://oauth-id.example/oauth2/start?rd={scheme}://{host}{http.request.uri.path_escaped}?{http.request.uri.query_escaped}
+		}
+	}
+
+	@denied not header_regexp X-Forwarded-Groups (^|,)(role:wiki\-admin)(,|$)
+	respond @denied "Not authorised. Signed in as {http.request.header.X-Forwarded-User}." 403
+}
+```
+
+Three parts of that are easy to get wrong by hand, which is most of the reason to generate it:
+
+- **The strip has to be inside `route`.** Caddy's default directive order runs `forward_auth`
+  *before* `request_header`, so an unwrapped `request_header -` deletes the identity the gate just
+  established instead of the caller's forged copy of it. The gate still passes and every request
+  reaches the app anonymous.
+- **`rd=` is escaped in two parts.** Written as one `{uri}`, the first `&` of a query string ends
+  the parameter and the rest is read as parameters of the login URL, so a caller signing in from a
+  deep link silently comes back to a truncated address.
+- **The role matcher is anchored on the separators.** A substring match would let `wiki-admin-ro`
+  satisfy a requirement for `wiki-admin`. An absent header matches nothing, so the gate denies a
+  caller the service told it nothing about rather than letting them through.
+
+Only the headers named in `copy_headers` are authoritative: Caddy sets each from the auth response
+and **removes** it when the response omits it, so neither can be forged. Every other header the
+caller sends arrives at the app untouched — that is what `strip_headers` is for, and it should
+name every identity header the app behind it is willing to believe.
 
 ## What the app has to provide
 
@@ -160,3 +279,4 @@ half of it right is an outage.
 |---|---|---|
 | `caddy_ingress_app` | `ingress` | the app running Caddy |
 | `caddy_ingress_filename` | `declared.caddy` | the file written into each `conf.d/` |
+| `caddy_ingress_auth` | `{}` | authentication profiles a claim's `forward_auth` can name |

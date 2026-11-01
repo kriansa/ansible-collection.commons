@@ -6,19 +6,73 @@
 
 # declared by {{ entry.app }}
 https://{{ claim.domain }} {
+{% if claim.raw is not defined %}
+	import common
+{% endif %}
+{% if claim.forward_auth is defined %}
+{% set auth = claim.forward_auth %}
+{% set profile = caddy_ingress_auth[auth.profile] %}
+{% set copies = [] %}
+{% for source, destination in profile.copy_headers | default({}) | dictsort %}
+{% set _ = copies.append(source ~ '>' ~ destination) %}
+{% endfor %}
+{# The deny body names who is signed in, because the caller authenticated successfully and is
+   being refused for a second reason - without it the page cannot be told apart from a broken
+   login, and there is no way to notice you are signed in as the wrong account. #}
+{% set denied_as = ' Signed in as {http.request.header.' ~ profile.user_header ~ '}.' if profile.user_header is defined else '' %}
+{% set denied_out = ' Sign out at ' ~ profile.logout ~ ' to use a different account.' if profile.logout is defined else '' %}
+
+{# One route block, so these run in the order written. Caddy's default order puts request_header
+   AFTER forward_auth, so an unwrapped strip would delete the identity forward_auth had just
+   established rather than the caller's forged copy of it - the gate would still pass, and every
+   request would reach the app anonymous. #}
+	route {
+{% for header in profile.strip_headers | default([]) %}
+		request_header -{{ header }}
+{% endfor %}
+
+		forward_auth {{ profile.endpoint }} {
+			uri {{ profile.uri }}
+{% if profile.host is defined %}
+			header_up Host {{ profile.host }}
+{% endif %}
+{# Whatever the upstream answers with replaces what the caller sent, and is removed outright when
+   the upstream omits it, so these two cannot be forged. Headers NOT listed here are untouched -
+   which is what strip_headers above is for. #}
+			copy_headers {{ copies | join(' ') }}
+
+{# The upstream answers 401 rather than redirecting, so the browser is sent to the login page from
+   here. The parts of rd= are escaped separately: left as one {uri}, the first & of a query string
+   ends rd and everything after it is read as parameters of the login URL instead, so the caller
+   comes back to a silently truncated address. #}
+			@unauth status 4xx
+			handle_response @unauth {
+				redir * {{ profile.redirect }}?rd={scheme}://{host}{http.request.uri.path_escaped}?{http.request.uri.query_escaped}
+			}
+		}
+{% if auth.require_roles is defined %}
+
+{# Anchored on the separators so a value matches whole: holding `admin-readonly` does not satisfy a
+   requirement for `admin`, which a substring match would allow. An absent header matches nothing,
+   so a caller the upstream told us nothing about is denied rather than let through. #}
+		@denied not header_regexp {{ profile.role_header }} (^|,)({{ auth.require_roles | map('regex_escape') | join('|') }})(,|$)
+		respond @denied "Not authorised.{{ denied_as }}{{ denied_out }}" 403
+{% endif %}
+	}
+
+{% endif %}
 {% if claim.raw is defined %}
 {# Written as given, without `import common`: a raw claim is usually raw because it needs
    something the shared snippet would get in the way of, so it imports it itself if it wants it #}
 {{ claim.raw | trim | indent('\t', first=True) }}
 {% else %}
-	import common
 {% if claim.address is defined %}
 {% set upstream = claim.address %}
 {% else %}
 {% set upstream = entry.app ~ '--' ~ claim.upstream %}
 {% endif %}
 {% set target = (claim.scheme | default('http')) ~ '://' ~ upstream %}
-{% set opts = claim.preserve_host | default(false) or claim.tls_insecure | default(false) or claim.flush_interval is defined %}
+{% set opts = claim.preserve_host | default(false) or claim.tls_insecure | default(false) or claim.flush_interval is defined or claim.headers_up is defined %}
 {% if not opts %}
 	reverse_proxy {{ target }}
 {% else %}
@@ -26,6 +80,12 @@ https://{{ claim.domain }} {
 {% if claim.preserve_host | default(false) %}
 		header_up Host {host}
 {% endif %}
+{# Quoted as JSON so a value with spaces or quotes in it stays one argument. Caddy still expands
+   its own {...} placeholders inside a quoted string, so a value containing braces is read as one
+   rather than sent literally. #}
+{% for name, value in claim.headers_up | default({}) | dictsort %}
+		header_up {{ name }} {{ value | to_json }}
+{% endfor %}
 {% if claim.flush_interval is defined %}
 		flush_interval {{ claim.flush_interval }}
 {% endif %}

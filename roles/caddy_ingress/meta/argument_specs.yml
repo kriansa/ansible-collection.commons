@@ -24,3 +24,13 @@ argument_specs:
             claim an app stops making disappears on its own.
         type: str
         default: declared.caddy
+      caddy_ingress_auth:
+        description:
+          - Named authentication services a claim can put in front of itself with C(forward_auth),
+            keyed by the name claims refer to. Caddy asks the service about every request and
+            serves the app only if it approves; the service never carries the app's traffic.
+          - Empty by default on purpose. A profile describes a service this role knows nothing
+            about, so shipping one would settle its address and header names for every user of the
+            role. Define them in the playbook - see the role's README for the shape.
+        type: dict
+        default: {}

@@ -32,14 +32,124 @@
       ansible.builtin.assert:
         that:
           - item.claim.raw is string
-          - (['scheme', 'tls_insecure', 'preserve_host', 'flush_interval']
+          - (['scheme', 'tls_insecure', 'preserve_host', 'flush_interval', 'headers_up']
              | select('in', item.claim) | list) == []
         fail_msg: >-
           {{ item.app }}: the caddy_ingress claim for {{ item.claim.domain }} uses `raw`, which
-          has to be a string and cannot be combined with scheme, tls_insecure, preserve_host or
-          flush_interval - write those into the raw block itself. Got: {{ item.claim }}
+          has to be a string and cannot be combined with scheme, tls_insecure, preserve_host,
+          flush_interval or headers_up - write those into the raw block itself.
+          Got: {{ item.claim }}
         quiet: true
       when: "'raw' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # Rendered into the vhost, so a non-string value would reach Caddy as whatever Python's repr
+    # of it looks like rather than failing.
+    - name: Check every headers_up is a mapping of strings
+      ansible.builtin.assert:
+        that:
+          - item.claim.headers_up is mapping
+          - item.claim.headers_up.values() | reject('string') | list == []
+        fail_msg: >-
+          {{ item.app }}: `headers_up` on the caddy_ingress claim for {{ item.claim.domain }} must
+          be a mapping of header name to a string value. Got: {{ item.claim.headers_up }}
+        quiet: true
+      when: "'headers_up' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # A bare `forward_auth: sso` is the shape most people reach for first, and as a string it would
+    # fail later on an attribute lookup rather than here, so it is named explicitly.
+    - name: Check every forward_auth names a profile
+      ansible.builtin.assert:
+        that:
+          - item.claim.forward_auth is mapping
+          - item.claim.forward_auth.profile is defined
+        fail_msg: >-
+          {{ item.app }}: the caddy_ingress claim for {{ item.claim.domain }} has a `forward_auth`
+          that is not a mapping naming a profile. Write it as `forward_auth: {profile: <name>}`,
+          optionally with `require_roles: [<value>, ...]`. Got: {{ item.claim.forward_auth }}
+        quiet: true
+      when: "'forward_auth' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # The profiles live in the playbook, not here, so a name that resolves to nothing usually means
+    # a claim travelled to a host whose playbook does not define it.
+    - name: Check every named auth profile exists
+      ansible.builtin.assert:
+        that: item.claim.forward_auth.profile in caddy_ingress_auth
+        fail_msg: >-
+          {{ item.app }}: the caddy_ingress claim for {{ item.claim.domain }} names the auth
+          profile `{{ item.claim.forward_auth.profile }}`, which is not defined in
+          caddy_ingress_auth. Defined on this host:
+          {{ caddy_ingress_auth.keys() | list | join(', ') | default('(none)', true) }}
+        quiet: true
+      when: "'forward_auth' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # Caught here rather than by `caddy validate` later, which would report a syntax error in
+    # generated output instead of naming the profile that is incomplete.
+    - name: Check every named auth profile is complete
+      ansible.builtin.assert:
+        that:
+          - (['endpoint', 'uri', 'redirect', 'copy_headers']
+             | reject('in', caddy_ingress_auth[item.claim.forward_auth.profile]) | list) == []
+          - item.claim.forward_auth.require_roles is not defined
+            or caddy_ingress_auth[item.claim.forward_auth.profile].role_header is defined
+        fail_msg: >-
+          {{ item.app }}: the auth profile `{{ item.claim.forward_auth.profile }}` needs `endpoint`,
+          `uri`, `redirect` and `copy_headers`, plus `role_header` for a claim that sets
+          `require_roles`. Got: {{ caddy_ingress_auth[item.claim.forward_auth.profile] }}
+        quiet: true
+      when: "'forward_auth' in item.claim"
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # Values are matched against the header verbatim, so they carry whatever prefix the upstream
+    # uses - oauth2-proxy reports a Keycloak role as `role:<name>`. An empty list would render a
+    # matcher that denies everyone.
+    - name: Check every require_roles is a non-empty list of strings
+      ansible.builtin.assert:
+        that:
+          - item.claim.forward_auth.require_roles is sequence
+          - item.claim.forward_auth.require_roles is not string
+          - item.claim.forward_auth.require_roles | length > 0
+          - item.claim.forward_auth.require_roles | reject('string') | list == []
+        fail_msg: >-
+          {{ item.app }}: `require_roles` on the caddy_ingress claim for {{ item.claim.domain }}
+          must be a non-empty list of strings, written as they appear in the
+          {{ caddy_ingress_auth[item.claim.forward_auth.profile].role_header | default('role') }}
+          header. Got: {{ item.claim.forward_auth.require_roles }}
+        quiet: true
+      when:
+        - "'forward_auth' in item.claim"
+        - item.claim.forward_auth.require_roles is defined
+      loop: "{{ quadlet_claims }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.domain }}"
+
+    # Both gates would be installed and the one in the raw block would decide, since it runs second
+    # against a request the first already authenticated. Nothing about that is visible in the
+    # claim, so it is refused instead.
+    - name: Check no raw block gates itself as well
+      ansible.builtin.assert:
+        that: "'forward_auth' not in item.claim.raw"
+        fail_msg: >-
+          {{ item.app }}: the caddy_ingress claim for {{ item.claim.domain }} sets `forward_auth`
+          and its `raw` block contains a forward_auth directive of its own. Keep one: either let
+          the claim declare the gate, or write the whole gate into the raw block.
+        quiet: true
+      when:
+        - "'forward_auth' in item.claim"
+        - "'raw' in item.claim"
       loop: "{{ quadlet_claims }}"
       loop_control:
         label: "{{ item.app }}: {{ item.claim.domain }}"

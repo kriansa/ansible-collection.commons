@@ -6,3 +6,11 @@ caddy_ingress_app: ingress
 # The file written into each instance's conf.d/. One file per instance, rewritten whole every run,
 # which is what makes a dropped claim disappear on its own - see the role's README.
 caddy_ingress_filename: declared.caddy
+
+# Named authentication services a claim can put in front of itself with `forward_auth`, defined by
+# the playbook that uses this role. Empty here deliberately: a profile describes somebody else's
+# authentication service - its address, its header names, the identity headers to clear - and a
+# default would settle that question for everyone and bake one vendor into a role that only knows
+# Caddy. A claim naming a profile that is not here fails the run, listing the ones that are. The
+# README shows the shape.
+caddy_ingress_auth: {}
