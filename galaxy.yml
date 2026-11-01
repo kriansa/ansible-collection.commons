@@ -39,3 +39,8 @@ issues: https://github.com/kriansa/ansible-collection.commons/issues
 dependencies:
   ansible.posix: "*"
   community.general: "*"
+
+# Local tooling and test output that must never ship inside a built collection
+build_ignore:
+  - .venv
+  - .pytest_cache

@@ -1,2 +1,31 @@
+# This collection is not a Python package. The project table only exists so uv can manage the
+# environment the tests run in.
+[project]
+name = "kriansa-commons-tests"
+version = "0"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+default-groups = ["test"]
+
+[dependency-groups]
+test = [
+  "ansible-core>=2.20.7,<2.21",
+  "pytest>=8.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".*"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+xfail_strict = true
+
 [tool.black]
 line-length = 100
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.isort]
+known-first-party = ["ansible_collections"]

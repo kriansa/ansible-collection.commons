@@ -2,3 +2,5 @@
 .claude/settings.local.json
 .mypy_cache/
 __pycache__/
+.venv/
+.pytest_cache/
