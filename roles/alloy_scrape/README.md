@@ -27,6 +27,7 @@ resource_claims:
 | `scrape_interval` | optional, `60s` | |
 | `bearer_token` | optional | sent as `Authorization: Bearer` - see [Credentials](#credentials) |
 | `relabel` | optional | rules applied to the scraped series, in order - see below |
+| `enabled` | optional, `true` | `false` leaves the scrape out - see [A scrape that waits for its credential](#a-scrape-that-waits-for-its-credential) |
 
 Every scrape is labelled `instance` with the host's name, the same value the host's own metrics
 carry, so an app's series can be lined up with its host's.
@@ -74,9 +75,30 @@ not show it in a diff or in its own checks, which read a copy of the claims with
 One thing it cannot hide: when Alloy rejects the file, its error quotes the lines around the fault,
 and a fault next to the token's line would show the token.
 
-A lookup with no `missing=` fails the run when the entry is not there, and because every app is read
-whichever is being deployed, that fails *every* run on the host until the entry exists. That is
-usually what you want: a scrape that is silently left out is not noticed for months.
+### A scrape that waits for its credential
+
+Some tokens can only be made once the app is running - a long-lived token created in its UI, say.
+A plain lookup cannot wait for that: it fails the run while the entry is missing, and because every
+app is read whichever one is deployed, it fails *every* run on the host, including the one that
+would deploy the app the token has to come from.
+
+So let the lookup come back empty, and switch the claim off for as long as it does:
+
+```yaml
+      bearer_token: "{{ lookup('passwordstore', 'Services/Home-Assistant/Prometheus-Token missing=empty') }}"
+      enabled: "{{ lookup('passwordstore', 'Services/Home-Assistant/Prometheus-Token missing=empty') | default('', true) | length > 0 }}"
+```
+
+`missing=empty` gives `None` rather than an empty string, which is what the `default('', true)` is
+for: `length` fails on `None`.
+
+A claim that is switched off goes through every check the others do, so a mistake in it shows up
+before it is switched on, and is only left out of the file. Every run lists it, since a scrape that
+is missing raises no error anywhere else - but it is a line in the output, not a failure, so it is
+only noticed by someone reading it. Once the token exists, the next run on the host writes the
+scrape in and reloads Alloy.
+
+A claim that is switched on with an empty token is refused: it would only ever get `401`.
 
 ## What the Alloy app has to provide
 

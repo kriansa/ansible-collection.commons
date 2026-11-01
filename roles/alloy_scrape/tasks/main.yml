@@ -11,6 +11,7 @@
   block:
     # A failed check prints the whole claim it was looking at, whatever its fail_msg says, so the
     # checks below read this copy, with any token replaced. Only the file itself gets the real one.
+    # An empty token is left empty: a check below needs to know, and it gives nothing away.
     - name: Start from no claims
       ansible.builtin.set_fact:
         alloy_scrape_checked: []
@@ -20,7 +21,7 @@
       ansible.builtin.set_fact:
         alloy_scrape_checked: >-
           {{ alloy_scrape_checked + [item | combine({'claim': item.claim
-             | combine({'bearer_token': '(hidden)'})})
+             | combine({'bearer_token': '(hidden)' if item.claim.bearer_token else ''})})
              if item.claim is mapping and 'bearer_token' in item.claim else item] }}
       loop: "{{ quadlet_claims }}"
       loop_control:
@@ -36,15 +37,32 @@
           - item.claim.target is defined and item.claim.target is string
           - item.claim.target is match('^[^:/ ]+:[0-9]+$')
           - (item.claim.keys() | difference(['job', 'target', 'metrics_path', 'scheme',
-             'scrape_interval', 'bearer_token', 'relabel'])) == []
+             'scrape_interval', 'bearer_token', 'relabel', 'enabled'])) == []
+          - item.claim.enabled is not defined or item.claim.enabled is boolean
         fail_msg: >-
           {{ item.app }}: an alloy_scrape claim needs `job` and `target` (a quadlet and port, as
-          main:9090), and may add metrics_path, scheme, scrape_interval, bearer_token and relabel.
-          Got: {{ item.claim }}
+          main:9090), and may add metrics_path, scheme, scrape_interval, bearer_token, relabel and
+          enabled (true or false). Got: {{ item.claim }}
         quiet: true
       loop: "{{ alloy_scrape_checked }}"
       loop_control:
         label: "{{ item.app }}: {{ item.claim.job | default('(no job)') }}"
+
+    # A token that came out empty is a lookup that found nothing. Scraping with it would fail on
+    # every attempt, so a claim either has a token or is switched off until it does.
+    - name: Check every claim that is switched on has its token
+      ansible.builtin.assert:
+        that:
+          - item.claim.bearer_token is string
+          - item.claim.bearer_token | length > 0
+        fail_msg: >-
+          {{ item.app }}: job {{ item.claim.job }} has an empty bearer_token. If the token is not
+          there yet, switch the claim off until it is, with `enabled`.
+        quiet: true
+      when: "'bearer_token' in item.claim and item.claim.enabled | default(true)"
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
 
     # Each rule becomes a `rule { key = value }` block, so its keys are written into the file as
     # names. Checked here so a stray key reads as a claim error rather than an Alloy syntax error.
@@ -95,6 +113,17 @@
       loop_control:
         label: "{{ item.app }}: {{ item.claim.job }}"
 
+    # A claim that is switched off has been through every check above, so it is ready the moment it
+    # is switched on. It is only left out of the file. Said on every run, because a scrape that is
+    # missing raises no error anywhere else.
+    - name: List the scrapes switched off by their claims
+      ansible.builtin.debug:
+        msg: "Not scraped, its claim is switched off: {{ item.app }}: {{ item.claim.job }}"
+      when: not (item.claim.enabled | default(true))
+      loop: "{{ alloy_scrape_checked }}"
+      loop_control:
+        label: "{{ item.app }}: {{ item.claim.job }}"
+
     # The name is the component label in Alloy, which allows letters, digits and underscores only.
     # Prefixed with the app, so two apps can both have a job called `api`.
     - name: Name each scrape
@@ -102,6 +131,7 @@
         alloy_scrape_entries: >-
           {{ alloy_scrape_entries + [item | combine({'name': (item.app ~ '_' ~ item.claim.job)
              | regex_replace('[^A-Za-z0-9_]', '_')})] }}
+      when: item.claim.enabled | default(true)
       loop: "{{ quadlet_claims }}"
       loop_control:
         label: "{{ item.app }}: {{ item.claim.job }}"
